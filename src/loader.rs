@@ -1,3 +1,22 @@
+//! # Data Loader
+//!
+//! This module handles loading event data from `.dat` files.
+//!
+//! ## File Format
+//! The `.dat` file format consists of:
+//! 1.  **Header**: Text lines starting with `%`.
+//! 2.  **Event Type & Size**: 2 bytes immediately following the header.
+//!     *   Byte 0: Event Type (ignored)
+//!     *   Byte 1: Event Size (must be 8 bytes)
+//! 3.  **Binary Data**: Sequence of 8-byte events.
+//!
+//! ### Event Structure (8 bytes)
+//! *   **Timestamp (t32)**: 4 bytes (u32, little-endian) - Microseconds.
+//! *   **Data (w32)**: 4 bytes (u32, little-endian).
+//!     *   Bits 0-13: X coordinate (14 bits)
+//!     *   Bits 14-27: Y coordinate (14 bits)
+//!     *   Bits 28-31: Polarity (4 bits)
+
 use crate::gpu::GpuEvent;
 use anyhow::{Context, Result};
 use memmap2::MmapOptions;
@@ -11,18 +30,13 @@ impl DatLoader {
         let path = path.as_ref();
         let file = File::open(path).context("Failed to open .dat file")?;
 
-        // Skip header
-        // In a real implementation we should parse the header properly.
-        // For now, we'll use the python logic: read until we find the binary data.
-        // The python code reads lines starting with '%' then reads 2 bytes (type + size).
-        // Then maps the rest.
-
-        // We'll use a simpler approach: Read the whole file into mmap, find the offset manually.
+        // Read the whole file into mmap
         let mmap = unsafe { MmapOptions::new().map(&file)? };
 
         let mut events = Vec::new();
         let mut offset = 0;
-        // Skip lines starting with %
+
+        // Skip header lines starting with %
         while offset < mmap.len() {
             if mmap[offset] == b'%' {
                 // find newline
@@ -34,10 +48,6 @@ impl DatLoader {
                 break;
             }
         }
-
-        // Python code:
-        // type_b = file.read(1)
-        // size_b = file.read(1)
 
         // Check event type and size
         if offset + 2 > mmap.len() {
