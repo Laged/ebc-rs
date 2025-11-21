@@ -1,6 +1,6 @@
 # Event-Based Camera Visualizer (ebc-rs)
 
-![Fan Demo](fan-demo.gif)
+<img src="fan-demo.gif" width="100%" alt="Fan Demo">
 
 ## Project Goal
 This project is a high-performance visualizer for event-based camera data, built with Rust and Bevy. It is designed to efficiently load, process, and render millions of events using a GPU-accelerated pipeline.
