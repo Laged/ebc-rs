@@ -1,3 +1,5 @@
+use crate::analysis::AnalysisPlugin;
+use crate::gizmos::FanGizmosPlugin;
 use crate::render::EventRenderPlugin;
 use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
 use bevy::{prelude::*, window::WindowResolution};
@@ -35,6 +37,8 @@ impl Plugin for CorePlugins {
             ..default()
         })
         .add_plugins(EventRenderPlugin)
+        .add_plugins(AnalysisPlugin)
+        .add_plugins(FanGizmosPlugin)
         .add_plugins(FrameTimeDiagnosticsPlugin::default());
     }
 }

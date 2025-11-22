@@ -1,5 +1,7 @@
 use bevy::prelude::*;
 
+mod analysis;
+mod gizmos;
 mod gpu;
 mod loader;
 mod plugins;

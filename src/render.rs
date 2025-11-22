@@ -1,3 +1,4 @@
+use crate::analysis::FanAnalysis;
 use crate::gpu::{
     prepare_events, queue_bind_group, EventAccumulationNode, EventComputePipeline, EventData,
     EventLabel, GpuEventBuffer, PlaybackState, SurfaceImage,
@@ -77,6 +78,7 @@ impl Material for EventMaterial {
 fn ui_system(
     mut contexts: EguiContexts,
     mut playback_state: ResMut<PlaybackState>,
+    mut fan_analysis: ResMut<FanAnalysis>,
     diagnostics: Res<bevy::diagnostic::DiagnosticsStore>,
 ) {
     egui::Window::new("Playback Controls").show(
@@ -131,6 +133,50 @@ fn ui_system(
                     ui.label(format!("FPS: {:.1}", value));
                 }
             }
+        },
+    );
+
+    // Motion Analysis Panel
+    egui::Window::new("Motion Analysis").show(
+        contexts.ctx_mut().expect("Failed to get egui context"),
+        |ui| {
+            ui.checkbox(&mut fan_analysis.is_tracking, "Enable RPM Tracking");
+
+            ui.separator();
+
+            // RPM Display
+            ui.label(format!("Detected RPM: {:.1}", fan_analysis.current_rpm));
+            ui.label(format!(
+                "Tip Velocity: {:.1} px/s",
+                fan_analysis.tip_velocity
+            ));
+
+            ui.separator();
+
+            // Visualization Controls
+            ui.checkbox(&mut fan_analysis.show_borders, "Show Blade Borders");
+
+            ui.add(
+                egui::Slider::new(&mut fan_analysis.blade_count, 2..=8)
+                    .text("Blade Count"),
+            );
+
+            ui.add(
+                egui::Slider::new(&mut fan_analysis.fan_radius, 50.0..=400.0)
+                    .text("Fan Radius (px)"),
+            );
+
+            ui.separator();
+
+            // Debug Info
+            ui.label(format!(
+                "Centroid: ({:.1}, {:.1})",
+                fan_analysis.centroid.x, fan_analysis.centroid.y
+            ));
+            ui.label(format!(
+                "Angle: {:.1}°",
+                fan_analysis.current_angle.to_degrees()
+            ));
         },
     );
 }
