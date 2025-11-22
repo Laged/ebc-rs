@@ -9,6 +9,9 @@ use bevy::{
     },
 };
 use bytemuck::{Pod, Zeroable};
+use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::Write;
 
 /// Fan motion analysis state
 #[derive(Resource, Clone, ExtractResource)]
@@ -42,6 +45,34 @@ impl Default for FanAnalysis {
             tip_velocity: 0.0,
             fan_radius: 200.0, // Default estimate
             current_angle: 0.0,
+        }
+    }
+}
+
+// --- RPM Logging ---
+
+#[derive(Serialize, Deserialize, Debug)]
+struct RpmLogEntry {
+    timestamp_secs: f32,
+    rpm: f32,
+    tip_velocity: f32,
+    centroid_x: f32,
+    centroid_y: f32,
+}
+
+#[derive(Resource)]
+struct RpmLogger {
+    last_log_time: f32,
+    log_interval: f32, // 0.1 seconds
+    entries: Vec<RpmLogEntry>,
+}
+
+impl Default for RpmLogger {
+    fn default() -> Self {
+        Self {
+            last_log_time: -1.0, // Start immediately
+            log_interval: 0.1,
+            entries: Vec::new(),
         }
     }
 }
@@ -137,8 +168,10 @@ impl Plugin for AnalysisPlugin {
         use bevy::render::extract_resource::ExtractResourcePlugin;
 
         app.init_resource::<FanAnalysis>()
+            .init_resource::<RpmLogger>()
             .add_plugins(ExtractResourcePlugin::<FanAnalysis>::default())
-            .add_systems(Update, (update_rotation_angle, simulate_rpm_detection));
+            .add_systems(Update, (update_rotation_angle, simulate_rpm_detection, log_rpm_periodically))
+            .add_systems(Last, write_rpm_log_on_exit);
     }
 
     fn finish(&self, app: &mut App) {
@@ -184,4 +217,53 @@ fn simulate_rpm_detection(mut analysis: ResMut<FanAnalysis>, time: Res<Time>) {
     // Calculate tip velocity: v = omega * radius
     let omega = (analysis.current_rpm * 2.0 * std::f32::consts::PI) / 60.0; // rad/s
     analysis.tip_velocity = omega * analysis.fan_radius;
+}
+
+/// Log RPM data every 0.1 seconds
+fn log_rpm_periodically(
+    time: Res<Time>,
+    analysis: Res<FanAnalysis>,
+    mut logger: ResMut<RpmLogger>,
+) {
+    let current_time = time.elapsed_secs();
+
+    // Check if enough time has passed since last log
+    if current_time - logger.last_log_time >= logger.log_interval {
+        let entry = RpmLogEntry {
+            timestamp_secs: current_time,
+            rpm: analysis.current_rpm,
+            tip_velocity: analysis.tip_velocity,
+            centroid_x: analysis.centroid.x,
+            centroid_y: analysis.centroid.y,
+        };
+
+        logger.entries.push(entry);
+        logger.last_log_time = current_time;
+
+        // Also write to file periodically (every 10 entries to reduce I/O)
+        if logger.entries.len() % 10 == 0 {
+            if let Err(e) = write_log_to_file(&logger.entries) {
+                error!("Failed to write RPM log: {}", e);
+            }
+        }
+    }
+}
+
+/// Write RPM log to output.json file
+fn write_log_to_file(entries: &[RpmLogEntry]) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(entries)?;
+    let mut file = File::create("output.json")?;
+    file.write_all(json.as_bytes())?;
+    Ok(())
+}
+
+/// Write final log on app exit
+fn write_rpm_log_on_exit(logger: Res<RpmLogger>) {
+    if !logger.entries.is_empty() {
+        if let Err(e) = write_log_to_file(&logger.entries) {
+            error!("Failed to write final RPM log: {}", e);
+        } else {
+            info!("Wrote {} RPM entries to output.json", logger.entries.len());
+        }
+    }
 }
