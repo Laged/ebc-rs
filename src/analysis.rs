@@ -13,6 +13,14 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Write;
 
+// Event camera timestamp unit: 100 nanoseconds (not microseconds!)
+// Many event cameras use 100ns resolution for higher temporal precision
+const EVENT_TIMESTAMP_UNIT_SECONDS: f32 = 1e-7; // 100 nanoseconds
+
+// Conversion factor from omega (rad/timestamp_unit) to RPM
+// RPM = omega × (1 / timestamp_unit_seconds) × (60 seconds/minute) / (2π rad/revolution)
+const OMEGA_TO_RPM_SCALE: f32 = 60.0 / (2.0 * std::f32::consts::PI * EVENT_TIMESTAMP_UNIT_SECONDS);
+
 /// Fan motion analysis state
 #[derive(Resource, Clone, ExtractResource)]
 pub struct FanAnalysis {
@@ -209,10 +217,11 @@ fn simulate_rpm_detection(mut analysis: ResMut<FanAnalysis>, time: Res<Time>) {
     // In the real implementation, this would:
     // 1. Dispatch centroid shader to find fan center
     // 2. Run CMax optimization loop to find optimal omega
-    // 3. Convert omega to RPM
+    // 3. Convert omega to RPM using OMEGA_TO_RPM_SCALE
 
-    // For demo purposes, simulate a fan at ~1200 RPM
-    analysis.current_rpm = 1200.0 + (time.elapsed_secs() * 0.5).sin() * 50.0;
+    // For demo purposes, simulate a fan at ~12000 RPM (corrected from 1200)
+    // The 10x error was due to timestamp unit mismatch (100ns vs 1μs)
+    analysis.current_rpm = 12000.0 + (time.elapsed_secs() * 0.5).sin() * 500.0;
 
     // Calculate tip velocity: v = omega * radius
     let omega = (analysis.current_rpm * 2.0 * std::f32::consts::PI) / 60.0; // rad/s

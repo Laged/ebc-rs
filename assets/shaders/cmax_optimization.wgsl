@@ -1,8 +1,11 @@
 // Contrast Maximization (CMax) Optimization Shader
 // Warps events based on test angular velocity and calculates variance
+//
+// CRITICAL: Event timestamps are in 100 nanosecond units, NOT microseconds!
+// This affects the omega scaling when converting to RPM.
 
 struct Event {
-    timestamp: u32,
+    timestamp: u32,         // Timestamp in 100ns units (0.1 microseconds)
     x: u32,
     y: u32,
     polarity: u32,
@@ -11,12 +14,12 @@ struct Event {
 struct OptimizationParams {
     width: u32,
     height: u32,
-    window_start: u32,
-    window_end: u32,
+    window_start: u32,      // In 100ns units
+    window_end: u32,        // In 100ns units
     centroid_x: f32,
     centroid_y: f32,
-    test_omega: f32,        // Angular velocity to test (radians per microsecond)
-    reference_time: f32,    // Reference timestamp
+    test_omega: f32,        // Angular velocity to test (radians per 100ns unit)
+    reference_time: f32,    // Reference timestamp (in 100ns units)
 }
 
 struct VarianceResult {

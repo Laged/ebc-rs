@@ -1,8 +1,10 @@
 // Centroid Tracking Compute Shader
 // Calculates the spatial mean (centroid) of events in the current time window
+//
+// CRITICAL: Event timestamps are in 100 nanosecond units, NOT microseconds!
 
 struct Event {
-    timestamp: u32,
+    timestamp: u32,         // Timestamp in 100ns units (0.1 microseconds)
     x: u32,
     y: u32,
     polarity: u32,
@@ -11,8 +13,8 @@ struct Event {
 struct Dimensions {
     width: u32,
     height: u32,
-    window_start: u32,
-    window_end: u32,
+    window_start: u32,      // In 100ns units
+    window_end: u32,        // In 100ns units
 }
 
 struct CentroidResult {
