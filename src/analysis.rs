@@ -304,7 +304,7 @@ impl Plugin for AnalysisPlugin {
     }
 
     fn finish(&self, app: &mut App) {
-        // --- Task 10: Integrate Radial Profile into AnalysisPlugin ---
+        // --- Task 10 & 14: Integrate Radial Profile and Angular Histogram into AnalysisPlugin ---
 
         // Centroid channel setup
         let (centroid_sender, centroid_receiver) = std::sync::mpsc::channel();
@@ -314,42 +314,56 @@ impl Plugin for AnalysisPlugin {
         let (radial_sender, radial_receiver) = std::sync::mpsc::channel();
         app.insert_resource(RadialReceiver(std::sync::Mutex::new(radial_receiver)));
 
+        // Angular channel setup
+        let (angular_sender, angular_receiver) = std::sync::mpsc::channel();
+        app.insert_resource(AngularReceiver(std::sync::Mutex::new(angular_receiver)));
+
         let render_app = app.sub_app_mut(RenderApp);
         render_app.insert_resource(CentroidSender(centroid_sender));
         render_app.insert_resource(RadialSender(radial_sender));
+        render_app.insert_resource(AngularSender(angular_sender));
 
         render_app
             .init_resource::<CentroidPipeline>()
             .init_resource::<CentroidGpuResources>()
             .init_resource::<RadialProfilePipeline>()
             .init_resource::<RadialGpuResources>()
+            .init_resource::<AngularHistogramPipeline>()
+            .init_resource::<AngularGpuResources>()
             .add_systems(
                 Render,
-                prepare_centroid_bind_group.in_set(RenderSystems::Prepare),
+                (
+                    prepare_centroid_bind_group,
+                    prepare_radial_bind_group,
+                    prepare_angular_bind_group,
+                )
+                    .in_set(RenderSystems::Prepare),
             )
             .add_systems(
                 Render,
-                prepare_radial_bind_group.in_set(RenderSystems::Prepare),
-            )
-            .add_systems(
-                Render,
-                read_centroid_result_render.in_set(RenderSystems::Cleanup),
-            )
-            .add_systems(
-                Render,
-                read_radial_result_render.in_set(RenderSystems::Cleanup),
+                (
+                    read_centroid_result_render,
+                    read_radial_result_render,
+                    read_angular_result_render,
+                )
+                    .in_set(RenderSystems::Cleanup),
             );
 
         let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
         render_graph.add_node(CentroidLabel, CentroidNode);
         render_graph.add_node(RadialProfileLabel, RadialProfileNode);
+        render_graph.add_node(AngularHistogramLabel, AngularHistogramNode);
         render_graph.add_node_edge(CentroidLabel, bevy::render::graph::CameraDriverLabel);
         render_graph.add_node_edge(RadialProfileLabel, bevy::render::graph::CameraDriverLabel);
+        render_graph.add_node_edge(AngularHistogramLabel, bevy::render::graph::CameraDriverLabel);
         // Radial must run after accumulation (needs surface texture)
         render_graph.add_node_edge(crate::gpu::EventLabel, RadialProfileLabel);
+        // Angular runs after centroid (needs centroid + radius)
+        render_graph.add_node_edge(CentroidLabel, AngularHistogramLabel);
 
         app.add_systems(Update, update_analysis_from_render);
         app.add_systems(Update, update_radius_from_render);
+        app.add_systems(Update, update_blades_from_render);
     }
 }
 
@@ -936,6 +950,369 @@ fn update_radius_from_render(receiver: Res<RadialReceiver>, mut analysis: ResMut
         while let Ok(radius) = rx.try_recv() {
             // Smooth update
             analysis.fan_radius = analysis.fan_radius + (radius - analysis.fan_radius) * 0.1;
+        }
+    }
+}
+
+// --- Task 11: Angular Histogram Pipeline Structures ---
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+struct AngularResult {
+    bins: [u32; 360],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+struct AngularParams {
+    centroid_x: f32,
+    centroid_y: f32,
+    radius: f32,
+    radius_tolerance: f32,
+    window_start: u32,
+    window_end: u32,
+    _padding: [u32; 2],
+}
+
+#[derive(Resource, Default)]
+pub struct AngularGpuResources {
+    pub result_buffer: Option<Buffer>,
+    pub staging_buffer: Option<Buffer>,
+    pub bind_group: Option<BindGroup>,
+    pub pipeline_ready: bool,
+    pub map_receiver:
+        Option<std::sync::Mutex<std::sync::mpsc::Receiver<Result<(), BufferAsyncError>>>>,
+    pub is_mapped: bool,
+}
+
+#[derive(Resource)]
+pub struct AngularHistogramPipeline {
+    pub layout: BindGroupLayout,
+    pub pipeline: CachedComputePipelineId,
+}
+
+impl FromWorld for AngularHistogramPipeline {
+    fn from_world(world: &mut World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        let layout = render_device.create_bind_group_layout(
+            Some("Angular Histogram Layout"),
+            &[
+                // Events buffer
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Result buffer
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Params uniform
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        );
+
+        let shader = world
+            .resource::<AssetServer>()
+            .load("shaders/angular_histogram.wgsl");
+        let pipeline_cache = world.resource::<PipelineCache>();
+        let pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+            label: Some("Angular Histogram Pipeline".into()),
+            layout: vec![layout.clone()],
+            push_constant_ranges: vec![],
+            shader,
+            shader_defs: vec![],
+            entry_point: Some("main".into()),
+            zero_initialize_workgroup_memory: false,
+        });
+
+        AngularHistogramPipeline { layout, pipeline }
+    }
+}
+
+// --- Task 12: Angular Histogram Render Node and Peak Detection ---
+
+#[derive(Resource)]
+struct AngularSender(pub std::sync::mpsc::Sender<Vec<f32>>);
+
+#[derive(Resource)]
+struct AngularReceiver(pub std::sync::Mutex<std::sync::mpsc::Receiver<Vec<f32>>>);
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+struct AngularHistogramLabel;
+
+struct AngularHistogramNode;
+
+impl Node for AngularHistogramNode {
+    fn run(
+        &self,
+        _graph: &mut bevy::render::render_graph::RenderGraphContext,
+        render_context: &mut RenderContext,
+        world: &World,
+    ) -> Result<(), bevy::render::render_graph::NodeRunError> {
+        let gpu_resources = world.resource::<AngularGpuResources>();
+        let pipeline = world.resource::<AngularHistogramPipeline>();
+        let pipeline_cache = world.resource::<PipelineCache>();
+        let gpu_event_buffer = world.resource::<crate::gpu::GpuEventBuffer>();
+        let render_queue = world.resource::<RenderQueue>();
+
+        if !gpu_resources.pipeline_ready {
+            return Ok(());
+        }
+        let Some(bind_group) = &gpu_resources.bind_group else {
+            return Ok(());
+        };
+        let Some(compute_pipeline) = pipeline_cache.get_compute_pipeline(pipeline.pipeline) else {
+            return Ok(());
+        };
+
+        // Reset result buffer
+        if let Some(result_buffer) = &gpu_resources.result_buffer {
+            let reset_data = AngularResult { bins: [0; 360] };
+            render_queue.write_buffer(result_buffer, 0, bytemuck::bytes_of(&reset_data));
+        }
+
+        {
+            let mut pass = render_context
+                .command_encoder()
+                .begin_compute_pass(&ComputePassDescriptor {
+                    label: Some("Angular Histogram Pass"),
+                    timestamp_writes: None,
+                });
+
+            pass.set_pipeline(compute_pipeline);
+            pass.set_bind_group(0, bind_group, &[]);
+
+            let workgroup_size = 64;
+            let count = gpu_event_buffer.count;
+            if count > 0 {
+                let total_workgroups = (count + workgroup_size - 1) / workgroup_size;
+                let max_workgroups_per_dim = 65535;
+                let x_workgroups = total_workgroups.min(max_workgroups_per_dim);
+                let y_workgroups =
+                    (total_workgroups + max_workgroups_per_dim - 1) / max_workgroups_per_dim;
+                pass.dispatch_workgroups(x_workgroups, y_workgroups, 1);
+            }
+        }
+
+        // Copy to staging
+        if !gpu_resources.is_mapped {
+            if let (Some(result), Some(staging)) =
+                (&gpu_resources.result_buffer, &gpu_resources.staging_buffer)
+            {
+                render_context.command_encoder().copy_buffer_to_buffer(
+                    result,
+                    0,
+                    staging,
+                    0,
+                    std::mem::size_of::<AngularResult>() as u64,
+                );
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn find_peaks(histogram: &[u32; 360], num_peaks: usize) -> Vec<f32> {
+    // Smooth histogram with 3-bin window
+    let mut smoothed = [0u32; 360];
+    for i in 0..360 {
+        let prev = if i == 0 { histogram[359] } else { histogram[i - 1] };
+        let next = if i == 359 { histogram[0] } else { histogram[i + 1] };
+        smoothed[i] = (prev + histogram[i] * 2 + next) / 4;
+    }
+
+    // Find local maxima
+    let mut peaks: Vec<(usize, u32)> = Vec::new();
+    for i in 0..360 {
+        let prev = if i == 0 { smoothed[359] } else { smoothed[i - 1] };
+        let next = if i == 359 { smoothed[0] } else { smoothed[i + 1] };
+
+        if smoothed[i] > prev && smoothed[i] > next && smoothed[i] > 10 {
+            peaks.push((i, smoothed[i]));
+        }
+    }
+
+    // Sort by intensity (descending)
+    peaks.sort_by(|a, b| b.1.cmp(&a.1));
+
+    // Take top num_peaks and convert to radians
+    peaks
+        .iter()
+        .take(num_peaks)
+        .map(|(angle_deg, _)| (*angle_deg as f32) * std::f32::consts::PI / 180.0)
+        .collect()
+}
+
+// --- Task 13: Angular Histogram Bind Group and Readback ---
+
+fn prepare_angular_bind_group(
+    pipeline: Res<AngularHistogramPipeline>,
+    render_device: Res<RenderDevice>,
+    mut gpu_resources: ResMut<AngularGpuResources>,
+    gpu_event_buffer: Res<crate::gpu::GpuEventBuffer>,
+    playback_state: Res<crate::gpu::PlaybackState>,
+    analysis: Res<FanAnalysis>,
+) {
+    let Some(event_buffer) = &gpu_event_buffer.buffer else {
+        return;
+    };
+
+    // Create buffers
+    if gpu_resources.result_buffer.is_none() {
+        let buffer = render_device.create_buffer(&BufferDescriptor {
+            label: Some("Angular Result Buffer"),
+            size: std::mem::size_of::<AngularResult>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        gpu_resources.result_buffer = Some(buffer);
+    }
+
+    if gpu_resources.staging_buffer.is_none() {
+        let buffer = render_device.create_buffer(&BufferDescriptor {
+            label: Some("Angular Staging Buffer"),
+            size: std::mem::size_of::<AngularResult>() as u64,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        gpu_resources.staging_buffer = Some(buffer);
+    }
+
+    // Create params uniform
+    let window_end = playback_state.current_time as u32;
+    let window_start = if window_end > playback_state.window_size as u32 {
+        window_end - playback_state.window_size as u32
+    } else {
+        0
+    };
+
+    let params = AngularParams {
+        centroid_x: analysis.centroid.x,
+        centroid_y: analysis.centroid.y,
+        radius: analysis.fan_radius,
+        radius_tolerance: 30.0, // Accept events within ±30px of radius
+        window_start: window_start * 10, // Convert to 100ns units
+        window_end: window_end * 10,
+        _padding: [0; 2],
+    };
+
+    let params_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("Angular Params"),
+        contents: bytemuck::bytes_of(&params),
+        usage: BufferUsages::UNIFORM,
+    });
+
+    // Create bind group
+    let bind_group = render_device.create_bind_group(
+        Some("Angular Histogram Bind Group"),
+        &pipeline.layout,
+        &[
+            BindGroupEntry {
+                binding: 0,
+                resource: event_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: gpu_resources.result_buffer.as_ref().unwrap().as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: params_buffer.as_entire_binding(),
+            },
+        ],
+    );
+
+    gpu_resources.bind_group = Some(bind_group);
+    gpu_resources.pipeline_ready = true;
+}
+
+fn read_angular_result_render(
+    gpu_resources: ResMut<AngularGpuResources>,
+    sender: Res<AngularSender>,
+    analysis: Res<FanAnalysis>,
+) {
+    let gpu_resources = gpu_resources.into_inner();
+    let Some(staging_buffer) = &gpu_resources.staging_buffer else {
+        return;
+    };
+
+    if let Some(receiver_mutex) = gpu_resources.map_receiver.take() {
+        let should_reinsert = if let Ok(receiver) = receiver_mutex.try_lock() {
+            match receiver.try_recv() {
+                Ok(Ok(())) => {
+                    let slice = staging_buffer.slice(..);
+                    {
+                        let data = slice.get_mapped_range();
+                        let result: AngularResult = *bytemuck::from_bytes(&data);
+
+                        // Detect peaks
+                        let blade_angles = find_peaks(&result.bins, analysis.blade_count as usize);
+
+                        let _ = sender.0.send(blade_angles);
+                    }
+                    staging_buffer.unmap();
+                    gpu_resources.is_mapped = false;
+                    false
+                }
+                Ok(Err(e)) => {
+                    error!("Angular buffer map failed: {}", e);
+                    gpu_resources.is_mapped = false;
+                    false
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => true,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    error!("Angular buffer map channel disconnected");
+                    gpu_resources.is_mapped = false;
+                    false
+                }
+            }
+        } else {
+            true
+        };
+
+        if should_reinsert {
+            gpu_resources.map_receiver = Some(receiver_mutex);
+        }
+    } else {
+        if !gpu_resources.is_mapped {
+            let slice = staging_buffer.slice(..);
+            let (sender, receiver) = std::sync::mpsc::channel();
+            slice.map_async(MapMode::Read, move |v| {
+                let _ = sender.send(v);
+            });
+            gpu_resources.map_receiver = Some(std::sync::Mutex::new(receiver));
+            gpu_resources.is_mapped = true;
+        }
+    }
+}
+
+fn update_blades_from_render(receiver: Res<AngularReceiver>, mut analysis: ResMut<FanAnalysis>) {
+    if let Ok(rx) = receiver.0.lock() {
+        while let Ok(blade_angles) = rx.try_recv() {
+            analysis.blade_angles = blade_angles;
         }
     }
 }
