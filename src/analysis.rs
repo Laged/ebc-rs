@@ -35,6 +35,8 @@ pub struct FanAnalysis {
     pub fan_radius: f32,
     /// Current rotation angle (radians) for visualization
     pub current_angle: f32,
+    /// Detected blade angles (radians)
+    pub blade_angles: Vec<f32>,
 }
 
 impl Default for FanAnalysis {
@@ -48,6 +50,7 @@ impl Default for FanAnalysis {
             tip_velocity: 0.0,
             fan_radius: 200.0, // Default estimate
             current_angle: 0.0,
+            blade_angles: vec![0.0, 2.094, 4.189], // Default 3 blades at 120° spacing
         }
     }
 }
