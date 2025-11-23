@@ -694,23 +694,23 @@ fn prepare_centroid_bind_group(
 /// In a complete implementation, this would dispatch the CMax shader and optimize for omega
 fn simulate_rpm_detection(
     mut analysis: ResMut<FanAnalysis>,
-    playback_state: Res<crate::gpu::PlaybackState>,
+    _playback_state: Res<crate::gpu::PlaybackState>,
 ) {
     if !analysis.is_tracking {
         return;
     }
 
-    // Placeholder: Simulate a constant RPM detection
-    // In the real implementation, this would:
-    // 1. Dispatch centroid shader to find fan center
-    // 2. Run CMax optimization loop to find optimal omega
-    // 3. Convert omega to RPM using OMEGA_TO_RPM_SCALE
+    // RPM calculation disabled until blade-based timing is implemented
+    // For now, show 0.0 to indicate "detecting..."
+    // Real RPM will be calculated from blade rotation timing once blades are reliably detected
 
-    // For demo purposes, simulate a fan at ~12000 RPM (corrected from 1200)
-    // The 10x error was due to timestamp unit mismatch (100ns vs 1μs)
-    // Use playback time for simulation consistency
-    let t = playback_state.current_time * 1e-6;
-    analysis.current_rpm = 12000.0 + (t * 0.5).sin() * 500.0;
+    if analysis.blade_angles.len() >= 2 {
+        // TODO: Calculate RPM from blade timing once we have reliable blade detection
+        // For now just show that we have blades
+        analysis.current_rpm = 0.0; // Placeholder
+    } else {
+        analysis.current_rpm = 0.0; // Detecting...
+    }
 
     // Calculate tip velocity: v = omega * radius
     let omega = (analysis.current_rpm * 2.0 * std::f32::consts::PI) / 60.0; // rad/s
@@ -874,16 +874,21 @@ fn read_radial_result_render(
                         let data = slice.get_mapped_range();
                         let result: RadialResult = *bytemuck::from_bytes(&data);
 
-                        // Calculate radius from 95th percentile
-                        let target_intensity = (result.total_intensity as f32 * 0.95) as u32;
+                        // Calculate radius from outer edge (95th percentile from outside-in)
+                        // We want the OUTER boundary, so we look for where 5% of intensity remains
+                        let target_intensity = (result.total_intensity as f32 * 0.05) as u32;
                         let mut cumulative = 0u32;
                         let mut detected_radius = 200.0; // Default fallback
 
-                        for (i, &bin_value) in result.radial_bins.iter().enumerate() {
-                            cumulative += bin_value;
-                            if cumulative >= target_intensity {
-                                detected_radius = i as f32;
-                                break;
+                        // Only run detection if we have meaningful data
+                        if result.total_intensity > 1000 {
+                            // Scan from outside-in to find outer edge
+                            for i in (0..400).rev() {
+                                cumulative += result.radial_bins[i];
+                                if cumulative >= target_intensity {
+                                    detected_radius = i as f32;
+                                    break;
+                                }
                             }
                         }
 
@@ -929,7 +934,11 @@ fn update_radius_from_render(receiver: Res<RadialReceiver>, mut analysis: ResMut
     if let Ok(rx) = receiver.0.lock() {
         while let Ok(radius) = rx.try_recv() {
             // Smooth update
+            let old_radius = analysis.fan_radius;
             analysis.fan_radius = analysis.fan_radius + (radius - analysis.fan_radius) * 0.1;
+            if (radius - old_radius).abs() > 20.0 {
+                info!("Large radius change: {} -> {} (detected: {})", old_radius, analysis.fan_radius, radius);
+            }
         }
     }
 }
@@ -1193,7 +1202,7 @@ fn prepare_angular_bind_group(
         centroid_x: analysis.centroid.x,
         centroid_y: analysis.centroid.y,
         radius: analysis.fan_radius,
-        radius_tolerance: 30.0, // Accept events within ±30px of radius
+        radius_tolerance: 50.0, // Accept events within ±50px of radius (wider for better detection)
         window_start: window_start * 10, // Convert to 100ns units
         window_end: window_end * 10,
         _padding: [0; 2],
@@ -1248,8 +1257,15 @@ fn read_angular_result_render(
                         let data = slice.get_mapped_range();
                         let result: AngularResult = *bytemuck::from_bytes(&data);
 
+                        // Check total events in histogram
+                        let total_events: u32 = result.bins.iter().sum();
+
                         // Detect peaks
                         let blade_angles = find_peaks(&result.bins, analysis.blade_count as usize);
+
+                        if total_events > 0 {
+                            info!("Angular histogram: {} total events, found {} peaks", total_events, blade_angles.len());
+                        }
 
                         let _ = sender.0.send(blade_angles);
                     }
@@ -1292,6 +1308,7 @@ fn read_angular_result_render(
 fn update_blades_from_render(receiver: Res<AngularReceiver>, mut analysis: ResMut<FanAnalysis>) {
     if let Ok(rx) = receiver.0.lock() {
         while let Ok(blade_angles) = rx.try_recv() {
+            info!("Detected {} blade angles: {:?}", blade_angles.len(), blade_angles);
             analysis.blade_angles = blade_angles;
         }
     }
