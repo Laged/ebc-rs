@@ -194,6 +194,93 @@ impl FromWorld for CentroidPipeline {
     }
 }
 
+// --- Task 6: Radial Profile Pipeline Structures ---
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+struct RadialResult {
+    radial_bins: [u32; 400],
+    total_intensity: u32,
+    _padding: [u32; 3],
+}
+
+#[derive(Resource, Default)]
+pub struct RadialGpuResources {
+    pub result_buffer: Option<Buffer>,
+    pub staging_buffer: Option<Buffer>,
+    pub bind_group: Option<BindGroup>,
+    pub pipeline_ready: bool,
+    pub map_receiver:
+        Option<std::sync::Mutex<std::sync::mpsc::Receiver<Result<(), BufferAsyncError>>>>,
+    pub is_mapped: bool,
+}
+
+#[derive(Resource)]
+pub struct RadialProfilePipeline {
+    pub layout: BindGroupLayout,
+    pub pipeline: CachedComputePipelineId,
+}
+
+impl FromWorld for RadialProfilePipeline {
+    fn from_world(world: &mut World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        let layout = render_device.create_bind_group_layout(
+            Some("Radial Profile Layout"),
+            &[
+                // Surface texture
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Uint,
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                // Result buffer
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Centroid uniform
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        );
+
+        let shader = world
+            .resource::<AssetServer>()
+            .load("shaders/radial_profile.wgsl");
+        let pipeline_cache = world.resource::<PipelineCache>();
+        let pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+            label: Some("Radial Profile Pipeline".into()),
+            layout: vec![layout.clone()],
+            push_constant_ranges: vec![],
+            shader,
+            shader_defs: vec![],
+            entry_point: Some("main".into()),
+            zero_initialize_workgroup_memory: false,
+        });
+
+        RadialProfilePipeline { layout, pipeline }
+    }
+}
+
 /// Plugin for fan motion analysis
 pub struct AnalysisPlugin;
 
@@ -217,29 +304,52 @@ impl Plugin for AnalysisPlugin {
     }
 
     fn finish(&self, app: &mut App) {
-        let (sender, receiver) = std::sync::mpsc::channel();
-        app.insert_resource(CentroidReceiver(std::sync::Mutex::new(receiver)));
+        // --- Task 10: Integrate Radial Profile into AnalysisPlugin ---
+
+        // Centroid channel setup
+        let (centroid_sender, centroid_receiver) = std::sync::mpsc::channel();
+        app.insert_resource(CentroidReceiver(std::sync::Mutex::new(centroid_receiver)));
+
+        // Radial channel setup
+        let (radial_sender, radial_receiver) = std::sync::mpsc::channel();
+        app.insert_resource(RadialReceiver(std::sync::Mutex::new(radial_receiver)));
 
         let render_app = app.sub_app_mut(RenderApp);
-        render_app.insert_resource(CentroidSender(sender));
+        render_app.insert_resource(CentroidSender(centroid_sender));
+        render_app.insert_resource(RadialSender(radial_sender));
 
         render_app
             .init_resource::<CentroidPipeline>()
             .init_resource::<CentroidGpuResources>()
+            .init_resource::<RadialProfilePipeline>()
+            .init_resource::<RadialGpuResources>()
             .add_systems(
                 Render,
                 prepare_centroid_bind_group.in_set(RenderSystems::Prepare),
             )
             .add_systems(
                 Render,
+                prepare_radial_bind_group.in_set(RenderSystems::Prepare),
+            )
+            .add_systems(
+                Render,
                 read_centroid_result_render.in_set(RenderSystems::Cleanup),
+            )
+            .add_systems(
+                Render,
+                read_radial_result_render.in_set(RenderSystems::Cleanup),
             );
 
         let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
         render_graph.add_node(CentroidLabel, CentroidNode);
+        render_graph.add_node(RadialProfileLabel, RadialProfileNode);
         render_graph.add_node_edge(CentroidLabel, bevy::render::graph::CameraDriverLabel);
+        render_graph.add_node_edge(RadialProfileLabel, bevy::render::graph::CameraDriverLabel);
+        // Radial must run after accumulation (needs surface texture)
+        render_graph.add_node_edge(crate::gpu::EventLabel, RadialProfileLabel);
 
         app.add_systems(Update, update_analysis_from_render);
+        app.add_systems(Update, update_radius_from_render);
     }
 }
 
@@ -247,6 +357,19 @@ impl Plugin for AnalysisPlugin {
 struct CentroidLabel;
 
 struct CentroidNode;
+
+// --- Task 7: Radial Profile Channel Resources and Render Node ---
+
+#[derive(Resource)]
+struct RadialSender(pub std::sync::mpsc::Sender<f32>);
+
+#[derive(Resource)]
+struct RadialReceiver(pub std::sync::Mutex<std::sync::mpsc::Receiver<f32>>);
+
+#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+struct RadialProfileLabel;
+
+struct RadialProfileNode;
 
 impl Node for CentroidNode {
     fn run(
@@ -328,6 +451,141 @@ impl Node for CentroidNode {
 
         Ok(())
     }
+}
+
+impl Node for RadialProfileNode {
+    fn run(
+        &self,
+        _graph: &mut bevy::render::render_graph::RenderGraphContext,
+        render_context: &mut RenderContext,
+        world: &World,
+    ) -> Result<(), bevy::render::render_graph::NodeRunError> {
+        let gpu_resources = world.resource::<RadialGpuResources>();
+        let pipeline = world.resource::<RadialProfilePipeline>();
+        let pipeline_cache = world.resource::<PipelineCache>();
+        let render_queue = world.resource::<RenderQueue>();
+
+        if !gpu_resources.pipeline_ready {
+            return Ok(());
+        }
+        let Some(bind_group) = &gpu_resources.bind_group else {
+            return Ok(());
+        };
+        let Some(compute_pipeline) = pipeline_cache.get_compute_pipeline(pipeline.pipeline) else {
+            return Ok(());
+        };
+
+        // Reset result buffer
+        if let Some(result_buffer) = &gpu_resources.result_buffer {
+            let reset_data = RadialResult {
+                radial_bins: [0; 400],
+                total_intensity: 0,
+                _padding: [0; 3],
+            };
+            render_queue.write_buffer(result_buffer, 0, bytemuck::bytes_of(&reset_data));
+        }
+
+        {
+            let mut pass = render_context
+                .command_encoder()
+                .begin_compute_pass(&ComputePassDescriptor {
+                    label: Some("Radial Profile Pass"),
+                    timestamp_writes: None,
+                });
+
+            pass.set_pipeline(compute_pipeline);
+            pass.set_bind_group(0, bind_group, &[]);
+
+            // Dispatch for 1280x720 texture with 16x16 workgroups
+            let workgroups_x = (1280 + 15) / 16;
+            let workgroups_y = (720 + 15) / 16;
+            pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+        }
+
+        // Copy to staging buffer
+        if !gpu_resources.is_mapped {
+            if let (Some(result), Some(staging)) =
+                (&gpu_resources.result_buffer, &gpu_resources.staging_buffer)
+            {
+                render_context.command_encoder().copy_buffer_to_buffer(
+                    result,
+                    0,
+                    staging,
+                    0,
+                    std::mem::size_of::<RadialResult>() as u64,
+                );
+            }
+        }
+
+        Ok(())
+    }
+}
+
+// --- Task 8: Radial Profile Bind Group Preparation ---
+
+fn prepare_radial_bind_group(
+    pipeline: Res<RadialProfilePipeline>,
+    render_device: Res<RenderDevice>,
+    mut gpu_resources: ResMut<RadialGpuResources>,
+    surface_image: Res<crate::gpu::SurfaceImage>,
+    gpu_images: Res<bevy::render::render_asset::RenderAssets<bevy::render::texture::GpuImage>>,
+    analysis: Res<FanAnalysis>,
+) {
+    let Some(gpu_image) = gpu_images.get(&surface_image.handle) else {
+        return;
+    };
+
+    // Create result buffer if missing
+    if gpu_resources.result_buffer.is_none() {
+        let buffer = render_device.create_buffer(&BufferDescriptor {
+            label: Some("Radial Result Buffer"),
+            size: std::mem::size_of::<RadialResult>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        gpu_resources.result_buffer = Some(buffer);
+    }
+
+    // Create staging buffer
+    if gpu_resources.staging_buffer.is_none() {
+        let buffer = render_device.create_buffer(&BufferDescriptor {
+            label: Some("Radial Staging Buffer"),
+            size: std::mem::size_of::<RadialResult>() as u64,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        gpu_resources.staging_buffer = Some(buffer);
+    }
+
+    // Create centroid uniform
+    let centroid_uniform = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("Radial Centroid Uniform"),
+        contents: bytemuck::bytes_of(&[analysis.centroid.x, analysis.centroid.y]),
+        usage: BufferUsages::UNIFORM,
+    });
+
+    // Create bind group
+    let bind_group = render_device.create_bind_group(
+        Some("Radial Profile Bind Group"),
+        &pipeline.layout,
+        &[
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::TextureView(&gpu_image.texture_view),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: gpu_resources.result_buffer.as_ref().unwrap().as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: centroid_uniform.as_entire_binding(),
+            },
+        ],
+    );
+
+    gpu_resources.bind_group = Some(bind_group);
+    gpu_resources.pipeline_ready = true;
 }
 
 fn prepare_centroid_bind_group(
@@ -598,6 +856,86 @@ fn update_analysis_from_render(receiver: Res<CentroidReceiver>, mut analysis: Re
             analysis.centroid = analysis.centroid.lerp(centroid, 0.1);
             // Smooth radius update (slower lerp for stability)
             analysis.fan_radius = analysis.fan_radius + (radius - analysis.fan_radius) * 0.05;
+        }
+    }
+}
+
+// --- Task 9: Radial Profile Readback and Radius Detection ---
+
+fn read_radial_result_render(
+    gpu_resources: ResMut<RadialGpuResources>,
+    sender: Res<RadialSender>,
+) {
+    let gpu_resources = gpu_resources.into_inner();
+    let Some(staging_buffer) = &gpu_resources.staging_buffer else {
+        return;
+    };
+
+    if let Some(receiver_mutex) = gpu_resources.map_receiver.take() {
+        let should_reinsert = if let Ok(receiver) = receiver_mutex.try_lock() {
+            match receiver.try_recv() {
+                Ok(Ok(())) => {
+                    let slice = staging_buffer.slice(..);
+                    {
+                        let data = slice.get_mapped_range();
+                        let result: RadialResult = *bytemuck::from_bytes(&data);
+
+                        // Calculate radius from 95th percentile
+                        let target_intensity = (result.total_intensity as f32 * 0.95) as u32;
+                        let mut cumulative = 0u32;
+                        let mut detected_radius = 200.0; // Default fallback
+
+                        for (i, &bin_value) in result.radial_bins.iter().enumerate() {
+                            cumulative += bin_value;
+                            if cumulative >= target_intensity {
+                                detected_radius = i as f32;
+                                break;
+                            }
+                        }
+
+                        let _ = sender.0.send(detected_radius);
+                    }
+                    staging_buffer.unmap();
+                    gpu_resources.is_mapped = false;
+                    false
+                }
+                Ok(Err(e)) => {
+                    error!("Radial buffer map failed: {}", e);
+                    gpu_resources.is_mapped = false;
+                    false
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => true,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    error!("Radial buffer map channel disconnected");
+                    gpu_resources.is_mapped = false;
+                    false
+                }
+            }
+        } else {
+            true
+        };
+
+        if should_reinsert {
+            gpu_resources.map_receiver = Some(receiver_mutex);
+        }
+    } else {
+        if !gpu_resources.is_mapped {
+            let slice = staging_buffer.slice(..);
+            let (sender, receiver) = std::sync::mpsc::channel();
+            slice.map_async(MapMode::Read, move |v| {
+                let _ = sender.send(v);
+            });
+            gpu_resources.map_receiver = Some(std::sync::Mutex::new(receiver));
+            gpu_resources.is_mapped = true;
+        }
+    }
+}
+
+fn update_radius_from_render(receiver: Res<RadialReceiver>, mut analysis: ResMut<FanAnalysis>) {
+    if let Ok(rx) = receiver.0.lock() {
+        while let Ok(radius) = rx.try_recv() {
+            // Smooth update
+            analysis.fan_radius = analysis.fan_radius + (radius - analysis.fan_radius) * 0.1;
         }
     }
 }
