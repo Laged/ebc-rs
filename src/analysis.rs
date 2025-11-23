@@ -294,7 +294,6 @@ impl Plugin for AnalysisPlugin {
             .add_systems(
                 Update,
                 (
-                    update_rotation_angle,
                     simulate_rpm_detection,
                     log_rpm_periodically,
                     debug_cpu_centroid,
@@ -690,25 +689,6 @@ fn prepare_centroid_bind_group(
 }
 
 // Removed dispatch_centroid_compute as it is now CentroidNode::run
-
-/// Update the current rotation angle based on RPM for smooth visualization
-fn update_rotation_angle(
-    playback_state: Res<crate::gpu::PlaybackState>,
-    mut analysis: ResMut<FanAnalysis>,
-) {
-    if analysis.current_rpm > 0.0 {
-        // Convert RPM to radians per second
-        let omega = (analysis.current_rpm * 2.0 * std::f32::consts::PI) / 60.0;
-
-        // Use playback time to calculate angle: theta = omega * t
-        // This ensures the angle is always synchronized with the event stream position
-        let t = playback_state.current_time * 1e-6; // Convert microseconds to seconds
-        analysis.current_angle = omega * t;
-
-        // Keep angle in 0..2π range
-        analysis.current_angle = analysis.current_angle % (2.0 * std::f32::consts::PI);
-    }
-}
 
 /// Simulate RPM detection (placeholder for full CMax implementation)
 /// In a complete implementation, this would dispatch the CMax shader and optimize for omega
