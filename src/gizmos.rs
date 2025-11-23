@@ -18,9 +18,9 @@ fn draw_fan_visualization(analysis: Res<FanAnalysis>, mut gizmos: Gizmos) {
 
     // Convert centroid to 3D position (Z = 0 to match the event visualization plane)
     let center = Vec3::new(
-        analysis.centroid.x - 640.0, // Center coordinate system
+        analysis.centroid.x - 640.0,    // Center coordinate system
         -(analysis.centroid.y - 360.0), // Flip Y axis (screen coords to world coords)
-        1.0, // Slightly in front of the event plane
+        1.0,                            // Slightly in front of the event plane
     );
 
     // Draw centroid marker (cross)
@@ -60,7 +60,6 @@ fn draw_fan_visualization(analysis: Res<FanAnalysis>, mut gizmos: Gizmos) {
         let tip_radius = 5.0;
         gizmos.circle(
             blade_end,
-            Direction3d::Z,
             tip_radius,
             Color::srgb(1.0, 1.0, 0.0), // Yellow
         );
@@ -69,7 +68,6 @@ fn draw_fan_visualization(analysis: Res<FanAnalysis>, mut gizmos: Gizmos) {
     // Draw fan radius circle
     gizmos.circle(
         center,
-        Direction3d::Z,
         analysis.fan_radius,
         Color::srgba(0.5, 0.5, 1.0, 0.5), // Semi-transparent blue
     );

@@ -18,9 +18,14 @@ struct Dimensions {
 }
 
 struct CentroidResult {
-    sum_x: atomic<u32>,  // Accumulated X * 1000 (to preserve precision)
-    sum_y: atomic<u32>,  // Accumulated Y * 1000 (to preserve precision)
+    sum_x: atomic<u32>,  // Accumulated X * 1000
+    sum_y: atomic<u32>,  // Accumulated Y * 1000
     count: atomic<u32>,  // Number of events
+    min_x: atomic<u32>,  // Minimum X coordinate
+    max_x: atomic<u32>,  // Maximum X coordinate
+    min_y: atomic<u32>,  // Minimum Y coordinate
+    max_y: atomic<u32>,  // Maximum Y coordinate
+    _padding: u32,       // Alignment
 }
 
 @group(0) @binding(0) var<storage, read> events: array<Event>;
@@ -29,7 +34,11 @@ struct CentroidResult {
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let index = global_id.x + global_id.y * 65535u;
+    // Stride must match the dispatch logic (x_workgroups * workgroup_size)
+    // We dispatch with x_workgroups = min(total, 65535)
+    // So the stride for the next row of workgroups is 65535 * 64
+    let stride = 65535u * 64u;
+    let index = global_id.x + global_id.y * stride;
 
     if index >= arrayLength(&events) {
         return;
@@ -46,5 +55,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         atomicAdd(&result.sum_x, x_scaled);
         atomicAdd(&result.sum_y, y_scaled);
         atomicAdd(&result.count, 1u);
+        
+        atomicMin(&result.min_x, event.x);
+        atomicMax(&result.max_x, event.x);
+        atomicMin(&result.min_y, event.y);
+        atomicMax(&result.max_y, event.y);
     }
 }

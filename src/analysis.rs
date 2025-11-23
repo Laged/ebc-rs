@@ -2,7 +2,7 @@ use bevy::{
     prelude::*,
     render::{
         extract_resource::ExtractResource,
-        render_graph::{Node, RenderLabel},
+        render_graph::{Node, RenderGraph, RenderLabel},
         render_resource::*,
         renderer::{RenderContext, RenderDevice, RenderQueue},
         Render, RenderApp, RenderSystems,
@@ -93,7 +93,20 @@ struct CentroidResult {
     sum_x: u32,
     sum_y: u32,
     count: u32,
-    _padding: u32, // For alignment
+    min_x: u32,
+    max_x: u32,
+    min_y: u32,
+    max_y: u32,
+    _padding: u32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+struct CentroidUniform {
+    width: u32,
+    height: u32,
+    window_start: u32,
+    window_end: u32,
 }
 
 #[derive(Resource, Default)]
@@ -102,7 +115,20 @@ pub struct CentroidGpuResources {
     pub staging_buffer: Option<Buffer>,
     pub bind_group: Option<BindGroup>,
     pub pipeline_ready: bool,
+    pub map_receiver:
+        Option<std::sync::Mutex<std::sync::mpsc::Receiver<Result<(), BufferAsyncError>>>>,
+    pub is_mapped: bool,
 }
+
+// ... (CentroidPipeline and AnalysisPlugin unchanged)
+
+#[derive(Resource)]
+struct CentroidSender(pub std::sync::mpsc::Sender<(Vec2, f32)>);
+
+#[derive(Resource)]
+struct CentroidReceiver(pub std::sync::Mutex<std::sync::mpsc::Receiver<(Vec2, f32)>>);
+
+// ...
 
 #[derive(Resource)]
 pub struct CentroidPipeline {
@@ -152,7 +178,9 @@ impl FromWorld for CentroidPipeline {
             ],
         );
 
-        let shader = world.resource::<AssetServer>().load("shaders/centroid.wgsl");
+        let shader = world
+            .resource::<AssetServer>()
+            .load("shaders/centroid.wgsl");
         let pipeline_cache = world.resource::<PipelineCache>();
         let pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
             label: Some("Centroid Pipeline".into()),
@@ -178,37 +206,246 @@ impl Plugin for AnalysisPlugin {
         app.init_resource::<FanAnalysis>()
             .init_resource::<RpmLogger>()
             .add_plugins(ExtractResourcePlugin::<FanAnalysis>::default())
-            .add_systems(Update, (update_rotation_angle, simulate_rpm_detection, log_rpm_periodically))
+            .add_systems(
+                Update,
+                (
+                    update_rotation_angle,
+                    simulate_rpm_detection,
+                    log_rpm_periodically,
+                    debug_cpu_centroid,
+                ),
+            )
             .add_systems(Last, write_rpm_log_on_exit);
     }
 
     fn finish(&self, app: &mut App) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        app.insert_resource(CentroidReceiver(std::sync::Mutex::new(receiver)));
+
         let render_app = app.sub_app_mut(RenderApp);
+        render_app.insert_resource(CentroidSender(sender));
 
         render_app
             .init_resource::<CentroidPipeline>()
-            .init_resource::<CentroidGpuResources>();
-            // Systems will be added later for centroid tracking
+            .init_resource::<CentroidGpuResources>()
+            .add_systems(
+                Render,
+                prepare_centroid_bind_group.in_set(RenderSystems::Prepare),
+            )
+            .add_systems(
+                Render,
+                read_centroid_result_render.in_set(RenderSystems::Cleanup),
+            );
+
+        let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
+        render_graph.add_node(CentroidLabel, CentroidNode);
+        render_graph.add_node_edge(CentroidLabel, bevy::render::graph::CameraDriverLabel);
+
+        app.add_systems(Update, update_analysis_from_render);
     }
 }
 
+#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
+struct CentroidLabel;
+
+struct CentroidNode;
+
+impl Node for CentroidNode {
+    fn run(
+        &self,
+        _graph: &mut bevy::render::render_graph::RenderGraphContext,
+        render_context: &mut RenderContext,
+        world: &World,
+    ) -> Result<(), bevy::render::render_graph::NodeRunError> {
+        let gpu_resources = world.resource::<CentroidGpuResources>();
+        let pipeline = world.resource::<CentroidPipeline>();
+        let pipeline_cache = world.resource::<PipelineCache>();
+        let gpu_event_buffer = world.resource::<crate::gpu::GpuEventBuffer>();
+        let render_queue = world.resource::<RenderQueue>();
+
+        if !gpu_resources.pipeline_ready {
+            return Ok(());
+        }
+        let Some(bind_group) = &gpu_resources.bind_group else {
+            return Ok(());
+        };
+        let Some(compute_pipeline) = pipeline_cache.get_compute_pipeline(pipeline.pipeline) else {
+            return Ok(());
+        };
+
+        // Reset result buffer
+        if let Some(result_buffer) = &gpu_resources.result_buffer {
+            let reset_data = CentroidResult {
+                sum_x: 0,
+                sum_y: 0,
+                count: 0,
+                min_x: u32::MAX,
+                max_x: 0,
+                min_y: u32::MAX,
+                max_y: 0,
+                _padding: 0,
+            };
+            render_queue.write_buffer(result_buffer, 0, bytemuck::bytes_of(&reset_data));
+        }
+
+        {
+            let mut pass =
+                render_context
+                    .command_encoder()
+                    .begin_compute_pass(&ComputePassDescriptor {
+                        label: Some("Centroid Compute Pass"),
+                        timestamp_writes: None,
+                    });
+
+            pass.set_pipeline(compute_pipeline);
+            pass.set_bind_group(0, bind_group, &[]);
+
+            let workgroup_size = 64;
+            let count = gpu_event_buffer.count;
+            if count > 0 {
+                let total_workgroups = (count + workgroup_size - 1) / workgroup_size;
+                let max_workgroups_per_dim = 65535;
+                let x_workgroups = total_workgroups.min(max_workgroups_per_dim);
+                let y_workgroups =
+                    (total_workgroups + max_workgroups_per_dim - 1) / max_workgroups_per_dim;
+                pass.dispatch_workgroups(x_workgroups, y_workgroups, 1);
+            }
+        }
+
+        // Copy result to staging buffer for readback
+        // Only copy if not mapped
+        if !gpu_resources.is_mapped {
+            if let (Some(result), Some(staging)) =
+                (&gpu_resources.result_buffer, &gpu_resources.staging_buffer)
+            {
+                render_context.command_encoder().copy_buffer_to_buffer(
+                    result,
+                    0,
+                    staging,
+                    0,
+                    std::mem::size_of::<CentroidResult>() as u64,
+                );
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn prepare_centroid_bind_group(
+    mut _commands: Commands,
+    pipeline: Res<CentroidPipeline>,
+    render_device: Res<RenderDevice>,
+    mut gpu_resources: ResMut<CentroidGpuResources>,
+    gpu_event_buffer: Res<crate::gpu::GpuEventBuffer>,
+    playback_state: Res<crate::gpu::PlaybackState>,
+) {
+    let Some(event_buffer) = &gpu_event_buffer.buffer else {
+        return;
+    };
+
+    // Create result buffer if missing
+    if gpu_resources.result_buffer.is_none() {
+        let buffer = render_device.create_buffer(&BufferDescriptor {
+            label: Some("Centroid Result Buffer"),
+            size: std::mem::size_of::<CentroidResult>() as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        gpu_resources.result_buffer = Some(buffer);
+    }
+
+    // Create staging buffer for readback
+    if gpu_resources.staging_buffer.is_none() {
+        let buffer = render_device.create_buffer(&BufferDescriptor {
+            label: Some("Centroid Staging Buffer"),
+            size: std::mem::size_of::<CentroidResult>() as u64,
+            usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        gpu_resources.staging_buffer = Some(buffer);
+    }
+
+    // Create Uniform Buffer
+    let window_end = playback_state.current_time as u32;
+    let window_start = if window_end > playback_state.window_size as u32 {
+        window_end - playback_state.window_size as u32
+    } else {
+        0
+    };
+
+    // Convert to 100ns units (from microseconds)
+    let start_100ns = window_start * 10;
+    let end_100ns = window_end * 10;
+
+    let uniform = CentroidUniform {
+        width: 1280,
+        height: 720,
+        window_start: start_100ns,
+        window_end: end_100ns,
+    };
+
+    let uniform_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("Centroid Uniforms"),
+        contents: bytemuck::bytes_of(&uniform),
+        usage: BufferUsages::UNIFORM,
+    });
+
+    // Create Bind Group
+    let bind_group = render_device.create_bind_group(
+        Some("Centroid Bind Group"),
+        &pipeline.layout,
+        &[
+            BindGroupEntry {
+                binding: 0,
+                resource: event_buffer.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: gpu_resources
+                    .result_buffer
+                    .as_ref()
+                    .unwrap()
+                    .as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 2,
+                resource: uniform_buffer.as_entire_binding(),
+            },
+        ],
+    );
+
+    gpu_resources.bind_group = Some(bind_group);
+    gpu_resources.pipeline_ready = true;
+}
+
+// Removed dispatch_centroid_compute as it is now CentroidNode::run
+
 /// Update the current rotation angle based on RPM for smooth visualization
-fn update_rotation_angle(time: Res<Time>, mut analysis: ResMut<FanAnalysis>) {
+fn update_rotation_angle(
+    playback_state: Res<crate::gpu::PlaybackState>,
+    mut analysis: ResMut<FanAnalysis>,
+) {
     if analysis.current_rpm > 0.0 {
         // Convert RPM to radians per second
         let omega = (analysis.current_rpm * 2.0 * std::f32::consts::PI) / 60.0;
-        analysis.current_angle += omega * time.delta_secs();
+
+        // Use playback time to calculate angle: theta = omega * t
+        // This ensures the angle is always synchronized with the event stream position
+        let t = playback_state.current_time * 1e-6; // Convert microseconds to seconds
+        analysis.current_angle = omega * t;
 
         // Keep angle in 0..2π range
-        if analysis.current_angle > 2.0 * std::f32::consts::PI {
-            analysis.current_angle -= 2.0 * std::f32::consts::PI;
-        }
+        analysis.current_angle = analysis.current_angle % (2.0 * std::f32::consts::PI);
     }
 }
 
 /// Simulate RPM detection (placeholder for full CMax implementation)
 /// In a complete implementation, this would dispatch the CMax shader and optimize for omega
-fn simulate_rpm_detection(mut analysis: ResMut<FanAnalysis>, time: Res<Time>) {
+fn simulate_rpm_detection(
+    mut analysis: ResMut<FanAnalysis>,
+    playback_state: Res<crate::gpu::PlaybackState>,
+) {
     if !analysis.is_tracking {
         return;
     }
@@ -221,7 +458,9 @@ fn simulate_rpm_detection(mut analysis: ResMut<FanAnalysis>, time: Res<Time>) {
 
     // For demo purposes, simulate a fan at ~12000 RPM (corrected from 1200)
     // The 10x error was due to timestamp unit mismatch (100ns vs 1μs)
-    analysis.current_rpm = 12000.0 + (time.elapsed_secs() * 0.5).sin() * 500.0;
+    // Use playback time for simulation consistency
+    let t = playback_state.current_time * 1e-6;
+    analysis.current_rpm = 12000.0 + (t * 0.5).sin() * 500.0;
 
     // Calculate tip velocity: v = omega * radius
     let omega = (analysis.current_rpm * 2.0 * std::f32::consts::PI) / 60.0; // rad/s
@@ -274,5 +513,127 @@ fn write_rpm_log_on_exit(logger: Res<RpmLogger>) {
         } else {
             info!("Wrote {} RPM entries to output.json", logger.entries.len());
         }
+    }
+}
+
+fn read_centroid_result_render(
+    mut gpu_resources: ResMut<CentroidGpuResources>,
+    sender: Res<CentroidSender>,
+) {
+    let gpu_resources = gpu_resources.into_inner();
+    let Some(staging_buffer) = &gpu_resources.staging_buffer else {
+        return;
+    };
+
+    if let Some(receiver_mutex) = gpu_resources.map_receiver.take() {
+        let should_reinsert_receiver = if let Ok(receiver) = receiver_mutex.try_lock() {
+            match receiver.try_recv() {
+                Ok(Ok(())) => {
+                    let slice = staging_buffer.slice(..);
+                    {
+                        let data = slice.get_mapped_range();
+                        let result: CentroidResult = *bytemuck::from_bytes(&data);
+
+                        if result.count > 0 {
+                            let x = (result.sum_x as f32 / result.count as f32) / 1000.0;
+                            let y = (result.sum_y as f32 / result.count as f32) / 1000.0;
+
+                            // Calculate radius from bounding box
+                            // This is a rough approximation but robust
+                            let width = if result.max_x > result.min_x {
+                                result.max_x - result.min_x
+                            } else {
+                                0
+                            };
+                            let height = if result.max_y > result.min_y {
+                                result.max_y - result.min_y
+                            } else {
+                                0
+                            };
+                            let radius = (width.max(height) as f32) / 2.0;
+
+                            let _ = sender.0.send((Vec2::new(x, y), radius));
+                        }
+                    }
+                    staging_buffer.unmap();
+                    gpu_resources.is_mapped = false;
+                    false
+                }
+                Ok(Err(e)) => {
+                    error!("Buffer map failed: {}", e);
+                    gpu_resources.is_mapped = false;
+                    false
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => true,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    error!("Buffer map channel disconnected");
+                    gpu_resources.is_mapped = false;
+                    false
+                }
+            }
+        } else {
+            true
+        };
+
+        if should_reinsert_receiver {
+            gpu_resources.map_receiver = Some(receiver_mutex);
+        }
+    } else {
+        // Request new map
+        if !gpu_resources.is_mapped {
+            let slice = staging_buffer.slice(..);
+            let (sender, receiver) = std::sync::mpsc::channel();
+            slice.map_async(MapMode::Read, move |v| {
+                let _ = sender.send(v);
+            });
+            gpu_resources.map_receiver = Some(std::sync::Mutex::new(receiver));
+            gpu_resources.is_mapped = true;
+        }
+    }
+}
+
+fn update_analysis_from_render(receiver: Res<CentroidReceiver>, mut analysis: ResMut<FanAnalysis>) {
+    // Process all available messages
+    if let Ok(rx) = receiver.0.lock() {
+        while let Ok((centroid, radius)) = rx.try_recv() {
+            // Smooth update
+            analysis.centroid = analysis.centroid.lerp(centroid, 0.1);
+            // Smooth radius update (slower lerp for stability)
+            analysis.fan_radius = analysis.fan_radius + (radius - analysis.fan_radius) * 0.05;
+        }
+    }
+}
+
+fn debug_cpu_centroid(
+    event_data: Res<crate::gpu::EventData>,
+    playback_state: Res<crate::gpu::PlaybackState>,
+) {
+    if !playback_state.is_playing {
+        return;
+    }
+
+    let window_end = playback_state.current_time as u32;
+    let window_start = if window_end > playback_state.window_size as u32 {
+        window_end - playback_state.window_size as u32
+    } else {
+        0
+    };
+
+    let mut sum_x = 0.0;
+    let mut sum_y = 0.0;
+    let mut count = 0;
+
+    for event in &event_data.events {
+        if event.timestamp >= window_start && event.timestamp <= window_end {
+            sum_x += event.x as f32;
+            sum_y += event.y as f32;
+            count += 1;
+        }
+    }
+
+    if count > 0 {
+        let cx = sum_x / count as f32;
+        let cy = sum_y / count as f32;
+        info!("CPU Centroid: ({:.2}, {:.2}) Count: {}", cx, cy, count);
     }
 }

@@ -25,7 +25,7 @@
     in {
       overlays.default = final: prev: {
         rustToolchain = with fenix.packages.${prev.stdenv.hostPlatform.system};
-          combine (with stable; [ clippy rustc cargo rustfmt rust-src ]);
+          combine (with latest; [ clippy rustc cargo rustfmt rust-src ]);
       };
 
       devShells = forEachSupportedSystem ({ pkgs }:
