@@ -37,6 +37,7 @@
             udev
             libxkbcommon
             wayland
+            wayland-protocols
             vulkan-loader
             xorg.libX11
             xorg.libXcursor

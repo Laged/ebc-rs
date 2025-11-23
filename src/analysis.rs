@@ -15,11 +15,6 @@ use std::io::Write;
 
 // Event camera timestamp unit: 100 nanoseconds (not microseconds!)
 // Many event cameras use 100ns resolution for higher temporal precision
-const EVENT_TIMESTAMP_UNIT_SECONDS: f32 = 1e-7; // 100 nanoseconds
-
-// Conversion factor from omega (rad/timestamp_unit) to RPM
-// RPM = omega × (1 / timestamp_unit_seconds) × (60 seconds/minute) / (2π rad/revolution)
-const OMEGA_TO_RPM_SCALE: f32 = 60.0 / (2.0 * std::f32::consts::PI * EVENT_TIMESTAMP_UNIT_SECONDS);
 
 /// Fan motion analysis state
 #[derive(Resource, Clone, ExtractResource)]
@@ -517,7 +512,7 @@ fn write_rpm_log_on_exit(logger: Res<RpmLogger>) {
 }
 
 fn read_centroid_result_render(
-    mut gpu_resources: ResMut<CentroidGpuResources>,
+    gpu_resources: ResMut<CentroidGpuResources>,
     sender: Res<CentroidSender>,
 ) {
     let gpu_resources = gpu_resources.into_inner();
