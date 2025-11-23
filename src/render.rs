@@ -80,7 +80,21 @@ fn ui_system(
     mut playback_state: ResMut<PlaybackState>,
     mut fan_analysis: ResMut<FanAnalysis>,
     diagnostics: Res<bevy::diagnostic::DiagnosticsStore>,
+    event_data: Res<EventData>,
 ) {
+    // Show error if no events loaded
+    if event_data.events.is_empty() {
+        egui::Window::new("Error").show(
+            contexts.ctx_mut().expect("Failed to get egui context"),
+            |ui| {
+                ui.colored_label(
+                    egui::Color32::RED,
+                    "Failed to load event data. Check that data/fan/fan_const_rpm.dat exists."
+                );
+            },
+        );
+    }
+
     egui::Window::new("Playback Controls").show(
         contexts.ctx_mut().expect("Failed to get egui context"),
         |ui| {
@@ -215,7 +229,7 @@ fn load_data(mut commands: Commands, mut playback_state: ResMut<PlaybackState>) 
     let path = "data/fan/fan_const_rpm.dat";
     match DatLoader::load(path) {
         Ok(events) => {
-            println!("Loaded {} events", events.len());
+            info!("Loaded {} events from {}", events.len(), path);
             if let Some(last) = events.last() {
                 playback_state.max_timestamp = last.timestamp;
                 playback_state.current_time = last.timestamp as f32; // Start at end
@@ -223,7 +237,11 @@ fn load_data(mut commands: Commands, mut playback_state: ResMut<PlaybackState>) 
             commands.insert_resource(EventData { events });
         }
         Err(e) => {
-            eprintln!("Failed to load data: {:?}", e);
+            error!("Failed to load data from {}: {:?}", path, e);
+            // Insert empty EventData so app doesn't crash
+            commands.insert_resource(EventData { events: Vec::new() });
+            playback_state.max_timestamp = 0;
+            playback_state.current_time = 0.0;
         }
     }
 }
