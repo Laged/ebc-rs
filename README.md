@@ -37,3 +37,20 @@ The visualization pipeline leverages WGPU compute shaders for high performance:
 *   **Time Slider**: Scrub through the dataset.
 *   **Window Slider**: Adjust the integration time window (accumulation duration).
 *   **Speed Slider**: Adjust playback speed.
+
+## Motion Analysis
+*   **Enable RPM Tracking**: Activate real-time analysis.
+*   **Show Blade Borders**: Visualize detected fan geometry:
+    *   **Blue Circle**: Auto-detected fan radius from intensity falloff
+    *   **Green Lines**: Blade positions from angular event distribution
+    *   **Yellow Dots**: Blade tip markers
+    *   **Red Cross**: Centroid (fan center)
+*   **Blade Count**: Number of blades to detect (2-8).
+
+### How It Works
+The visualizer uses GPU compute shaders to analyze event patterns:
+1. **Centroid Tracking**: Calculates spatial mean of events
+2. **Radial Analysis**: Builds intensity histogram to find 95th percentile radius
+3. **Angular Histogram**: Detects blade positions via peak finding in polar distribution
+
+See `docs/design/2025-11-23-fan-visualization-accuracy-design.md` for technical details.
