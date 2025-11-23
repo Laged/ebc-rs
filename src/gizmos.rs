@@ -36,18 +36,13 @@ fn draw_fan_visualization(analysis: Res<FanAnalysis>, mut gizmos: Gizmos) {
         Color::srgb(1.0, 0.0, 0.0), // Red
     );
 
-    // Draw blade borders
-    let blade_count = analysis.blade_count as f32;
-    let angle_per_blade = 2.0 * std::f32::consts::PI / blade_count;
-
-    for i in 0..analysis.blade_count {
-        let angle = analysis.current_angle + (i as f32 * angle_per_blade);
-
+    // Draw blade borders using DETECTED angles
+    for &blade_angle in &analysis.blade_angles {
         // Calculate blade edge positions
-        let dx = angle.cos() * analysis.fan_radius;
-        let dy = angle.sin() * analysis.fan_radius;
+        let dx = blade_angle.cos() * analysis.fan_radius;
+        let dy = blade_angle.sin() * analysis.fan_radius;
 
-        let blade_end = center + Vec3::new(dx, dy, 0.0);
+        let blade_end = center + Vec3::new(dx, -dy, 0.0);  // Flip Y for screen coords
 
         // Draw line from center to blade tip
         gizmos.line(
