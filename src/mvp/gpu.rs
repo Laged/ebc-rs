@@ -57,6 +57,7 @@ pub struct GpuEventBuffer {
 pub struct EdgeParams {
     pub threshold: f32,
     pub show_gradient: bool,
+    pub show_raw: bool,
 }
 
 impl Default for EdgeParams {
@@ -64,6 +65,7 @@ impl Default for EdgeParams {
         Self {
             threshold: 1000.0,
             show_gradient: true,
+            show_raw: false,  // Off by default
         }
     }
 }

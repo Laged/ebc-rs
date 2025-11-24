@@ -6,6 +6,7 @@ struct Params {
     time: f32,
     decay_tau: f32,
     show_gradient: u32,
+    show_raw: u32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> params: Params;
@@ -19,24 +20,26 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let x = i32(in.uv.x * params.width);
     let y = i32(in.uv.y * params.height);
 
-    // Layer 0: Raw events (red/blue)
-    let packed_val = textureLoad(surface_texture, vec2<i32>(x, y), 0).r;
+    // Initialize output color
+    var output_color = vec3<f32>(0.0, 0.0, 0.0);
 
-    var raw_color: vec3<f32>;
-    if (packed_val == 0u) {
-        raw_color = vec3<f32>(0.0, 0.0, 0.0);
-    } else {
-        let timestamp = packed_val >> 1u;
-        let polarity = packed_val & 1u;
+    // Layer 0: Raw events (red/blue) - only if enabled
+    if (params.show_raw == 1u) {
+        let packed_val = textureLoad(surface_texture, vec2<i32>(x, y), 0).r;
 
-        let dt = params.time - f32(timestamp);
-        let intensity = exp(-dt / params.decay_tau);
+        if (packed_val != 0u) {
+            let timestamp = packed_val >> 1u;
+            let polarity = packed_val & 1u;
 
-        // Polarity 1 = Positive (Red), 0 = Negative (Blue)
-        if (polarity == 1u) {
-            raw_color = vec3<f32>(1.0, 0.2, 0.2) * intensity; // Reddish
-        } else {
-            raw_color = vec3<f32>(0.2, 0.2, 1.0) * intensity; // Bluish
+            let dt = params.time - f32(timestamp);
+            let intensity = exp(-dt / params.decay_tau);
+
+            // Polarity 1 = Positive (Red), 0 = Negative (Blue)
+            if (polarity == 1u) {
+                output_color = vec3<f32>(1.0, 0.2, 0.2) * intensity; // Reddish
+            } else {
+                output_color = vec3<f32>(0.2, 0.2, 1.0) * intensity; // Bluish
+            }
         }
     }
 
@@ -45,9 +48,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let edge_val = textureSample(gradient_texture, gradient_sampler, in.uv).r;
         if (edge_val > 0.0) {
             let yellow = vec3<f32>(1.0, 1.0, 0.0);
-            raw_color = mix(raw_color, yellow, 0.5);  // 50% alpha blend
+            output_color = mix(output_color, yellow, 0.5);  // 50% alpha blend
         }
     }
 
-    return vec4<f32>(raw_color, 1.0);
+    return vec4<f32>(output_color, 1.0);
 };

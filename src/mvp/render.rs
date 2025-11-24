@@ -19,6 +19,7 @@ struct EventParams {
     time: f32,
     decay_tau: f32,
     show_gradient: u32,
+    show_raw: u32,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -140,6 +141,7 @@ fn setup_scene(
             time: 20000.0,
             decay_tau: 50000.0,
             show_gradient: 1,
+            show_raw: 0,  // Off by default
         },
     });
     commands.insert_resource(CurrentMaterialHandle(material_handle.clone()));
@@ -161,6 +163,7 @@ fn update_material_params(
     if let Some(material) = materials.get_mut(&current_material.0) {
         material.params.time = playback_state.current_time;
         material.params.show_gradient = if edge_params.show_gradient { 1 } else { 0 };
+        material.params.show_raw = if edge_params.show_raw { 1 } else { 0 };
     }
 }
 
@@ -211,6 +214,7 @@ fn ui_system(
 
     // Edge Detection Controls
     egui::Window::new("Edge Detection").show(ctx, |ui| {
+        ui.checkbox(&mut edge_params.show_raw, "Show Raw Data (Red/Blue)");
         ui.checkbox(&mut edge_params.show_gradient, "Show Edge Detection (Yellow)");
 
         ui.add(
@@ -218,6 +222,7 @@ fn ui_system(
                 .text("Edge Threshold"),
         );
 
+        ui.separator();
         ui.label("Layer 0: Red/Blue raw events");
         ui.label("Layer 1: Yellow edge detection (Sobel STG)");
     });

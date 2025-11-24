@@ -18,8 +18,8 @@ impl Default for PlaybackState {
         Self {
             is_playing: true,
             current_time: 20000.0,
-            window_size: 1_000_000.0,  // 1 second
-            playback_speed: 0.1,        // 0.1x speed
+            window_size: 100.0,     // 100 microseconds
+            playback_speed: 0.01,   // 0.01x speed
             looping: true,
             max_timestamp: 1_000_000,
         }
