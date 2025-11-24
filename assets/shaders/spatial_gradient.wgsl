@@ -35,6 +35,13 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 
+    // Filter 1: Dead pixel check - only process areas with recent events
+    let center_timestamp = timestamps[4]; // Center of 3x3 grid
+    if (center_timestamp < 1.0) {  // No events at center
+        textureStore(gradient_output, coords, vec4<f32>(0.0));
+        return;
+    }
+
     // Sobel kernels
     // Gx: [-1  0  1]    Gy: [-1 -2 -1]
     //     [-2  0  2]        [ 0  0  0]
