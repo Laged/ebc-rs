@@ -1,4 +1,4 @@
-use crate::gpu::{EventData, SurfaceImage, SobelImage, EdgeParams};
+use crate::gpu::{EventData, SurfaceImage, SobelImage, CannyImage, LogImage, EdgeParams};
 use crate::playback::PlaybackState;
 use crate::loader::DatLoader;
 use crate::EventFilePath;
@@ -19,6 +19,8 @@ struct EventParams {
     time: f32,
     decay_tau: f32,
     show_sobel: u32,
+    show_canny: u32,
+    show_log: u32,
     show_raw: u32,
 }
 
@@ -31,6 +33,12 @@ struct EventMaterial {
     #[texture(2)]
     #[sampler(3)]
     sobel_texture: Handle<Image>,
+    #[texture(4)]
+    #[sampler(5)]
+    canny_texture: Handle<Image>,
+    #[texture(6)]
+    #[sampler(7)]
+    log_texture: Handle<Image>,
 }
 
 impl Material for EventMaterial {
@@ -90,6 +98,8 @@ fn setup_scene(
     mut images: ResMut<Assets<Image>>,
     mut surface_image_res: ResMut<SurfaceImage>,
     mut sobel_image_res: ResMut<SobelImage>,
+    mut canny_image_res: ResMut<CannyImage>,
+    mut log_image_res: ResMut<LogImage>,
 ) {
     // Camera
     commands.spawn((
@@ -131,17 +141,47 @@ fn setup_scene(
     let sobel_handle = images.add(sobel_image);
     sobel_image_res.handle = sobel_handle.clone();
 
+    // Canny texture (R32Float for edge magnitude)
+    let mut canny_image = Image::new_fill(
+        size,
+        TextureDimension::D2,
+        &[0, 0, 0, 0],
+        TextureFormat::R32Float,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    canny_image.texture_descriptor.usage =
+        TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
+    let canny_handle = images.add(canny_image);
+    canny_image_res.handle = canny_handle.clone();
+
+    // LoG texture (R32Float for edge magnitude)
+    let mut log_image = Image::new_fill(
+        size,
+        TextureDimension::D2,
+        &[0, 0, 0, 0],
+        TextureFormat::R32Float,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    log_image.texture_descriptor.usage =
+        TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
+    let log_handle = images.add(log_image);
+    log_image_res.handle = log_handle.clone();
+
     // Material
     let material_handle = materials.add(EventMaterial {
         surface_texture: surface_handle,
         sobel_texture: sobel_handle,
+        canny_texture: canny_handle,
+        log_texture: log_handle,
         params: EventParams {
             width: 1280.0,
             height: 720.0,
             time: 20000.0,
             decay_tau: 50000.0,
             show_sobel: 1,
-            show_raw: 0,  // Off by default
+            show_canny: 0,  // Off by default
+            show_log: 0,    // Off by default
+            show_raw: 0,    // Off by default
         },
     });
     commands.insert_resource(CurrentMaterialHandle(material_handle.clone()));
@@ -163,6 +203,8 @@ fn update_material_params(
     if let Some(material) = materials.get_mut(&current_material.0) {
         material.params.time = playback_state.current_time;
         material.params.show_sobel = if edge_params.show_sobel { 1 } else { 0 };
+        material.params.show_canny = if edge_params.show_canny { 1 } else { 0 };
+        material.params.show_log = if edge_params.show_log { 1 } else { 0 };
         material.params.show_raw = if edge_params.show_raw { 1 } else { 0 };
     }
 }
@@ -230,11 +272,33 @@ fn ui_system(
     // Edge Detection Controls
     egui::Window::new("Edge Detection").show(ctx, |ui| {
         ui.checkbox(&mut edge_params.show_raw, "Show Raw Data (Red/Blue)");
-        ui.checkbox(&mut edge_params.show_sobel, "Show Edge Detection (Yellow)");
+        ui.checkbox(&mut edge_params.show_sobel, "Show Sobel (Yellow)");
+        ui.checkbox(&mut edge_params.show_canny, "Show Canny (Cyan)");
+        ui.checkbox(&mut edge_params.show_log, "Show LoG (Magenta)");
 
+        ui.separator();
+        ui.label("Sobel Threshold:");
         ui.add(
             egui::Slider::new(&mut edge_params.threshold, 0.0..=10_000.0)
-                .text("Edge Threshold"),
+                .text("Sobel Threshold"),
+        );
+
+        ui.separator();
+        ui.label("Canny Thresholds:");
+        ui.add(
+            egui::Slider::new(&mut edge_params.canny_low_threshold, 0.0..=5_000.0)
+                .text("Canny Low"),
+        );
+        ui.add(
+            egui::Slider::new(&mut edge_params.canny_high_threshold, 0.0..=10_000.0)
+                .text("Canny High"),
+        );
+
+        ui.separator();
+        ui.label("LoG Threshold:");
+        ui.add(
+            egui::Slider::new(&mut edge_params.log_threshold, 0.0..=10_000.0)
+                .text("LoG Threshold"),
         );
 
         ui.separator();
@@ -253,8 +317,11 @@ fn ui_system(
         });
 
         ui.separator();
+        ui.label("Layers:");
         ui.label("Layer 0: Red/Blue raw events");
-        ui.label("Layer 1: Yellow edge detection (Sobel STG)");
+        ui.label("Layer 1: Yellow Sobel edges (STG)");
+        ui.label("Layer 2: Cyan Canny edges");
+        ui.label("Layer 3: Magenta LoG edges");
     });
 }
 
