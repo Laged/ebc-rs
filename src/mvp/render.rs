@@ -172,7 +172,22 @@ fn ui_system(
     mut playback_state: ResMut<PlaybackState>,
     mut edge_params: ResMut<EdgeParams>,
     diagnostics: Res<bevy::diagnostic::DiagnosticsStore>,
+    keyboard: Res<ButtonInput<KeyCode>>,
 ) {
+    // Handle keyboard input for filter toggles (1/2/3/4)
+    if keyboard.just_pressed(KeyCode::Digit1) {
+        edge_params.filter_dead_pixels = !edge_params.filter_dead_pixels;
+    }
+    if keyboard.just_pressed(KeyCode::Digit2) {
+        edge_params.filter_density = !edge_params.filter_density;
+    }
+    if keyboard.just_pressed(KeyCode::Digit3) {
+        edge_params.filter_bidirectional = !edge_params.filter_bidirectional;
+    }
+    if keyboard.just_pressed(KeyCode::Digit4) {
+        edge_params.filter_temporal = !edge_params.filter_temporal;
+    }
+
     let ctx = contexts.ctx_mut().expect("Failed to get egui context");
 
     // Playback Controls
@@ -223,6 +238,21 @@ fn ui_system(
         );
 
         ui.separator();
+        ui.label("Filters (Toggle with 1/2/3/4):");
+        ui.horizontal(|ui| {
+            ui.label(format!("[1] Dead Pixels: {}", if edge_params.filter_dead_pixels { "ON" } else { "OFF" }));
+        });
+        ui.horizontal(|ui| {
+            ui.label(format!("[2] Density: {}", if edge_params.filter_density { "ON" } else { "OFF" }));
+        });
+        ui.horizontal(|ui| {
+            ui.label(format!("[3] Bidirectional: {}", if edge_params.filter_bidirectional { "ON" } else { "OFF" }));
+        });
+        ui.horizontal(|ui| {
+            ui.label(format!("[4] Temporal: {}", if edge_params.filter_temporal { "ON" } else { "OFF" }));
+        });
+
+        ui.separator();
         ui.label("Layer 0: Red/Blue raw events");
         ui.label("Layer 1: Yellow edge detection (Sobel STG)");
     });
@@ -236,17 +266,24 @@ impl Plugin for EventRenderPlugin {
             .add_plugins(EguiPlugin::default())
             .add_plugins(FrameTimeDiagnosticsPlugin::default())
             .add_systems(Startup, (load_data, setup_scene).chain())
-            .add_systems(Update, (
-                crate::mvp::playback::playback_system,
-                update_material_params,
-            ).chain())
+            .add_systems(Update, crate::mvp::playback::playback_system)
+            .add_systems(Update, update_material_params)
             .add_systems(EguiPrimaryContextPass, ui_system);
     }
 
     fn finish(&self, app: &mut App) {
         use crate::mvp::gpu::*;
         use bevy::render::render_graph::RenderGraph;
-        use bevy::render::{RenderApp, Render, RenderSystems};
+        use bevy::render::{RenderApp, Render, RenderSystems, ExtractSchedule};
+        use bevy::render::Extract;
+
+        // Custom extraction system for EdgeParams
+        fn extract_edge_params(
+            mut commands: Commands,
+            edge_params: Extract<Res<EdgeParams>>,
+        ) {
+            commands.insert_resource(edge_params.clone());
+        }
 
         let render_app = app.sub_app_mut(RenderApp);
 
@@ -254,6 +291,7 @@ impl Plugin for EventRenderPlugin {
             .init_resource::<EventComputePipeline>()
             .init_resource::<GradientPipeline>()
             .init_resource::<GpuEventBuffer>()
+            .add_systems(ExtractSchedule, extract_edge_params)
             .add_systems(Render, prepare_events.in_set(RenderSystems::Prepare))
             .add_systems(Render, queue_bind_group.in_set(RenderSystems::Queue))
             .add_systems(Render, prepare_gradient.in_set(RenderSystems::Queue));

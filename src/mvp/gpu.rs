@@ -11,6 +11,17 @@ use bevy::{
 };
 use bytemuck::{Pod, Zeroable};
 
+// GPU-compatible EdgeParams struct that matches WGSL layout
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct GpuEdgeParams {
+    pub threshold: f32,
+    pub filter_dead_pixels: u32,
+    pub filter_density: u32,
+    pub filter_bidirectional: u32,
+    pub filter_temporal: u32,
+}
+
 // GPU event representation
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -53,11 +64,24 @@ pub struct GpuEventBuffer {
 }
 
 // Edge detection parameters
-#[derive(Resource, ExtractResource, Clone)]
+#[derive(Resource, Clone)]
 pub struct EdgeParams {
     pub threshold: f32,
     pub show_gradient: bool,
     pub show_raw: bool,
+    // Filter toggles (keyboard 1/2/3/4)
+    pub filter_dead_pixels: bool,     // Filter 1: Dead pixel check
+    pub filter_density: bool,          // Filter 2: Event density check
+    pub filter_bidirectional: bool,    // Filter 3: Bidirectional gradient
+    pub filter_temporal: bool,         // Filter 4: Temporal variance
+}
+
+impl ExtractResource for EdgeParams {
+    type Source = EdgeParams;
+
+    fn extract_resource(source: &Self::Source) -> Self {
+        source.clone()
+    }
 }
 
 impl Default for EdgeParams {
@@ -65,7 +89,12 @@ impl Default for EdgeParams {
         Self {
             threshold: 1000.0,
             show_gradient: true,
-            show_raw: false,  // Off by default
+            show_raw: false,
+            // Only dead pixels filter ON by default - others can be toggled with 2/3/4 keys
+            filter_dead_pixels: true,
+            filter_density: false,
+            filter_bidirectional: false,
+            filter_temporal: false,
         }
     }
 }
@@ -413,14 +442,23 @@ pub fn prepare_gradient(
     gpu_images: Res<RenderAssets<GpuImage>>,
     edge_buffer: Option<Res<EdgeParamsBuffer>>,
 ) {
+    // Pack all edge params with correct types matching WGSL struct
+    let gpu_params = GpuEdgeParams {
+        threshold: edge_params.threshold,
+        filter_dead_pixels: if edge_params.filter_dead_pixels { 1 } else { 0 },
+        filter_density: if edge_params.filter_density { 1 } else { 0 },
+        filter_bidirectional: if edge_params.filter_bidirectional { 1 } else { 0 },
+        filter_temporal: if edge_params.filter_temporal { 1 } else { 0 },
+    };
+
     // Create or update edge params buffer
     let buffer = if let Some(existing) = edge_buffer {
-        render_queue.write_buffer(&existing.0, 0, bytemuck::cast_slice(&[edge_params.threshold]));
+        render_queue.write_buffer(&existing.0, 0, bytemuck::bytes_of(&gpu_params));
         existing.0.clone()
     } else {
         let new_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("Edge Params Buffer"),
-            contents: bytemuck::cast_slice(&[edge_params.threshold]),
+            contents: bytemuck::bytes_of(&gpu_params),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
         commands.insert_resource(EdgeParamsBuffer(new_buffer.clone()));
