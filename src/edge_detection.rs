@@ -10,12 +10,12 @@ pub struct EdgeDetectionPlugin;
 impl Plugin for EdgeDetectionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SurfaceImage>()
-            .init_resource::<GradientImage>()
+            .init_resource::<SobelImage>()
             .init_resource::<crate::playback::PlaybackState>()
             .init_resource::<EdgeParams>()
             .add_plugins(ExtractResourcePlugin::<EventData>::default())
             .add_plugins(ExtractResourcePlugin::<SurfaceImage>::default())
-            .add_plugins(ExtractResourcePlugin::<GradientImage>::default())
+            .add_plugins(ExtractResourcePlugin::<SobelImage>::default())
             .add_plugins(ExtractResourcePlugin::<crate::playback::PlaybackState>::default())
             .add_plugins(EventRendererPlugin);
     }
@@ -33,17 +33,17 @@ impl Plugin for EdgeDetectionPlugin {
 
         render_app
             .init_resource::<EventComputePipeline>()
-            .init_resource::<GradientPipeline>()
+            .init_resource::<SobelPipeline>()
             .init_resource::<GpuEventBuffer>()
             .add_systems(ExtractSchedule, extract_edge_params)
             .add_systems(Render, prepare_events.in_set(RenderSystems::Prepare))
             .add_systems(Render, queue_bind_group.in_set(RenderSystems::Queue))
-            .add_systems(Render, prepare_gradient.in_set(RenderSystems::Queue));
+            .add_systems(Render, prepare_sobel.in_set(RenderSystems::Queue));
 
         let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
         render_graph.add_node(EventLabel, EventAccumulationNode::default());
-        render_graph.add_node(GradientLabel, GradientNode::default());
-        render_graph.add_node_edge(EventLabel, GradientLabel);
-        render_graph.add_node_edge(GradientLabel, bevy::render::graph::CameraDriverLabel);
+        render_graph.add_node(SobelLabel, SobelNode::default());
+        render_graph.add_node_edge(EventLabel, SobelLabel);
+        render_graph.add_node_edge(SobelLabel, bevy::render::graph::CameraDriverLabel);
     }
 }

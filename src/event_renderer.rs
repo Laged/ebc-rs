@@ -1,4 +1,4 @@
-use crate::gpu::{EventData, SurfaceImage, GradientImage, EdgeParams};
+use crate::gpu::{EventData, SurfaceImage, SobelImage, EdgeParams};
 use crate::playback::PlaybackState;
 use crate::loader::DatLoader;
 use crate::EventFilePath;
@@ -18,7 +18,7 @@ struct EventParams {
     height: f32,
     time: f32,
     decay_tau: f32,
-    show_gradient: u32,
+    show_sobel: u32,
     show_raw: u32,
 }
 
@@ -30,7 +30,7 @@ struct EventMaterial {
     surface_texture: Handle<Image>,
     #[texture(2)]
     #[sampler(3)]
-    gradient_texture: Handle<Image>,
+    sobel_texture: Handle<Image>,
 }
 
 impl Material for EventMaterial {
@@ -89,7 +89,7 @@ fn setup_scene(
     mut materials: ResMut<Assets<EventMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut surface_image_res: ResMut<SurfaceImage>,
-    mut gradient_image_res: ResMut<GradientImage>,
+    mut sobel_image_res: ResMut<SobelImage>,
 ) {
     // Camera
     commands.spawn((
@@ -118,29 +118,29 @@ fn setup_scene(
     let surface_handle = images.add(surface_image);
     surface_image_res.handle = surface_handle.clone();
 
-    // Gradient texture (R32Float for edge magnitude)
-    let mut gradient_image = Image::new_fill(
+    // Sobel texture (R32Float for edge magnitude)
+    let mut sobel_image = Image::new_fill(
         size,
         TextureDimension::D2,
         &[0, 0, 0, 0],
         TextureFormat::R32Float,
         RenderAssetUsages::RENDER_WORLD,
     );
-    gradient_image.texture_descriptor.usage =
+    sobel_image.texture_descriptor.usage =
         TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
-    let gradient_handle = images.add(gradient_image);
-    gradient_image_res.handle = gradient_handle.clone();
+    let sobel_handle = images.add(sobel_image);
+    sobel_image_res.handle = sobel_handle.clone();
 
     // Material
     let material_handle = materials.add(EventMaterial {
         surface_texture: surface_handle,
-        gradient_texture: gradient_handle,
+        sobel_texture: sobel_handle,
         params: EventParams {
             width: 1280.0,
             height: 720.0,
             time: 20000.0,
             decay_tau: 50000.0,
-            show_gradient: 1,
+            show_sobel: 1,
             show_raw: 0,  // Off by default
         },
     });
@@ -162,7 +162,7 @@ fn update_material_params(
 ) {
     if let Some(material) = materials.get_mut(&current_material.0) {
         material.params.time = playback_state.current_time;
-        material.params.show_gradient = if edge_params.show_gradient { 1 } else { 0 };
+        material.params.show_sobel = if edge_params.show_sobel { 1 } else { 0 };
         material.params.show_raw = if edge_params.show_raw { 1 } else { 0 };
     }
 }
@@ -230,7 +230,7 @@ fn ui_system(
     // Edge Detection Controls
     egui::Window::new("Edge Detection").show(ctx, |ui| {
         ui.checkbox(&mut edge_params.show_raw, "Show Raw Data (Red/Blue)");
-        ui.checkbox(&mut edge_params.show_gradient, "Show Edge Detection (Yellow)");
+        ui.checkbox(&mut edge_params.show_sobel, "Show Edge Detection (Yellow)");
 
         ui.add(
             egui::Slider::new(&mut edge_params.threshold, 0.0..=10_000.0)

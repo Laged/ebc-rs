@@ -15,9 +15,9 @@ pub struct SurfaceImage {
     pub handle: Handle<Image>,
 }
 
-// Handle to gradient texture (Layer 1 output)
+// Handle to sobel texture (Layer 1 output)
 #[derive(Resource, ExtractResource, Clone, Default)]
-pub struct GradientImage {
+pub struct SobelImage {
     pub handle: Handle<Image>,
 }
 
@@ -27,7 +27,7 @@ pub struct GpuEventBuffer {
     pub buffer: Option<Buffer>,
     pub count: u32,
     pub surface_buffer: Option<Buffer>,
-    pub gradient_buffer: Option<Buffer>,
+    pub sobel_buffer: Option<Buffer>,
     pub dimensions: UVec2,
     pub dim_buffer: Option<Buffer>,
     pub uploaded: bool,
@@ -38,7 +38,7 @@ pub struct GpuEventBuffer {
 #[derive(Resource, Clone)]
 pub struct EdgeParams {
     pub threshold: f32,
-    pub show_gradient: bool,
+    pub show_sobel: bool,
     pub show_raw: bool,
     // Filter toggles (keyboard 1/2/3/4)
     pub filter_dead_pixels: bool,     // Filter 1: Dead pixel check
@@ -59,7 +59,7 @@ impl Default for EdgeParams {
     fn default() -> Self {
         Self {
             threshold: 1000.0,
-            show_gradient: true,
+            show_sobel: true,
             show_raw: false,
             // Only dead pixels filter ON by default - others can be toggled with 2/3/4 keys
             filter_dead_pixels: true,

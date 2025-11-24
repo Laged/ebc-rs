@@ -7,19 +7,19 @@ use bevy::render::{
     texture::GpuImage,
 };
 use super::types::GpuEdgeParams;
-use super::resources::{EdgeParams, SurfaceImage, GradientImage};
+use super::resources::{EdgeParams, SurfaceImage, SobelImage};
 
 #[derive(Resource)]
-pub struct GradientPipeline {
+pub struct SobelPipeline {
     pub layout: BindGroupLayout,
     pub pipeline: CachedComputePipelineId,
 }
 
-impl FromWorld for GradientPipeline {
+impl FromWorld for SobelPipeline {
     fn from_world(world: &mut World) -> Self {
         let render_device = world.resource::<RenderDevice>();
         let layout = render_device.create_bind_group_layout(
-            Some("Gradient Pipeline Layout"),
+            Some("Sobel Pipeline Layout"),
             &[
                 BindGroupLayoutEntry {
                     binding: 0,
@@ -56,10 +56,10 @@ impl FromWorld for GradientPipeline {
 
         let shader = world
             .resource::<AssetServer>()
-            .load("shaders/spatial_gradient.wgsl");
+            .load("shaders/sobel.wgsl");
         let pipeline_cache = world.resource::<PipelineCache>();
         let pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
-            label: Some("Spatial Gradient Pipeline".into()),
+            label: Some("Sobel Pipeline".into()),
             layout: vec![layout.clone()],
             push_constant_ranges: vec![],
             shader,
@@ -68,24 +68,24 @@ impl FromWorld for GradientPipeline {
             zero_initialize_workgroup_memory: false,
         });
 
-        GradientPipeline { layout, pipeline }
+        SobelPipeline { layout, pipeline }
     }
 }
 
 #[derive(Resource)]
-pub struct GradientBindGroup(pub BindGroup);
+pub struct SobelBindGroup(pub BindGroup);
 
 #[derive(Resource)]
 pub struct EdgeParamsBuffer(pub Buffer);
 
-pub fn prepare_gradient(
+pub fn prepare_sobel(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
-    pipeline: Res<GradientPipeline>,
+    pipeline: Res<SobelPipeline>,
     edge_params: Res<EdgeParams>,
     surface_image: Res<SurfaceImage>,
-    gradient_image: Res<GradientImage>,
+    sobel_image: Res<SobelImage>,
     gpu_images: Res<RenderAssets<GpuImage>>,
     edge_buffer: Option<Res<EdgeParamsBuffer>>,
 ) {
@@ -113,12 +113,12 @@ pub fn prepare_gradient(
     };
 
     // Create bind group if textures are ready
-    if let (Some(surface_gpu), Some(gradient_gpu)) = (
+    if let (Some(surface_gpu), Some(sobel_gpu)) = (
         gpu_images.get(&surface_image.handle),
-        gpu_images.get(&gradient_image.handle),
+        gpu_images.get(&sobel_image.handle),
     ) {
         let bind_group = render_device.create_bind_group(
-            Some("Gradient Bind Group"),
+            Some("Sobel Bind Group"),
             &pipeline.layout,
             &[
                 BindGroupEntry {
@@ -127,7 +127,7 @@ pub fn prepare_gradient(
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: BindingResource::TextureView(&gradient_gpu.texture_view),
+                    resource: BindingResource::TextureView(&sobel_gpu.texture_view),
                 },
                 BindGroupEntry {
                     binding: 2,
@@ -135,17 +135,17 @@ pub fn prepare_gradient(
                 },
             ],
         );
-        commands.insert_resource(GradientBindGroup(bind_group));
+        commands.insert_resource(SobelBindGroup(bind_group));
     }
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-pub struct GradientLabel;
+pub struct SobelLabel;
 
 #[derive(Default)]
-pub struct GradientNode;
+pub struct SobelNode;
 
-impl Node for GradientNode {
+impl Node for SobelNode {
     fn run(
         &self,
         _graph: &mut bevy::render::render_graph::RenderGraphContext,
@@ -153,8 +153,8 @@ impl Node for GradientNode {
         world: &World,
     ) -> Result<(), bevy::render::render_graph::NodeRunError> {
         let pipeline_cache = world.resource::<PipelineCache>();
-        let pipeline = world.resource::<GradientPipeline>();
-        let Some(bind_group) = world.get_resource::<GradientBindGroup>() else {
+        let pipeline = world.resource::<SobelPipeline>();
+        let Some(bind_group) = world.get_resource::<SobelBindGroup>() else {
             return Ok(());
         };
 
@@ -162,7 +162,7 @@ impl Node for GradientNode {
             let mut pass = render_context
                 .command_encoder()
                 .begin_compute_pass(&ComputePassDescriptor {
-                    label: Some("Spatial Gradient"),
+                    label: Some("Sobel"),
                     timestamp_writes: None,
                 });
 

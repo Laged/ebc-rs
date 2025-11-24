@@ -5,14 +5,14 @@ struct Params {
     height: f32,
     time: f32,
     decay_tau: f32,
-    show_gradient: u32,
+    show_sobel: u32,
     show_raw: u32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> params: Params;
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var surface_texture: texture_2d<u32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(2) var gradient_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(3) var gradient_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(2) var sobel_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(3) var sobel_sampler: sampler;
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -43,9 +43,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    // Layer 1: Gradient edges (yellow) with 50% alpha blend compositing
-    if (params.show_gradient == 1u) {
-        let edge_val = textureSample(gradient_texture, gradient_sampler, in.uv).r;
+    // Layer 1: Sobel edges (yellow) with 50% alpha blend compositing
+    if (params.show_sobel == 1u) {
+        let edge_val = textureSample(sobel_texture, sobel_sampler, in.uv).r;
         if (edge_val > 0.0) {
             let yellow = vec3<f32>(1.0, 1.0, 0.0);
             output_color = mix(output_color, yellow, 0.5);  // 50% alpha blend
