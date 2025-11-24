@@ -47,7 +47,7 @@ impl Default for PlaybackState {
         Self {
             is_playing: false,
             current_time: 20000.0,
-            window_size: 100.0,  // 100us default
+            window_size: 1_000_000.0,  // 1 second (1,000,000us) to capture enough events for blade detection
             playback_speed: 0.1, // 0.1x default
             looping: true,
             max_timestamp: 1000000, // Default placeholder, updated on load

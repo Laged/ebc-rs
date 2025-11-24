@@ -118,9 +118,9 @@ fn ui_system(
                     .text("Time (us)"),
             );
 
-            // Window: 1us to 100ms (100,000us)
+            // Window: 1us to 1s (1,000,000us)
             ui.add(
-                egui::Slider::new(&mut playback_state.window_size, 1.0..=100000.0)
+                egui::Slider::new(&mut playback_state.window_size, 1.0..=1_000_000.0)
                     .text("Window (us)")
                     .logarithmic(true), // Logarithmic scale for wide range
             );
