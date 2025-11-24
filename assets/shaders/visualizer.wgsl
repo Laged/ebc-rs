@@ -7,12 +7,18 @@ struct Params {
     decay_tau: f32,
     show_sobel: u32,
     show_raw: u32,
+    show_canny: u32,
+    show_log: u32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> params: Params;
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var surface_texture: texture_2d<u32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var sobel_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(3) var sobel_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(4) var canny_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(5) var canny_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(6) var log_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(7) var log_sampler: sampler;
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -49,6 +55,24 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         if (edge_val > 0.0) {
             let yellow = vec3<f32>(1.0, 1.0, 0.0);
             output_color = mix(output_color, yellow, 0.5);  // 50% alpha blend
+        }
+    }
+
+    // Layer 2: Canny edges (cyan) with 50% alpha blend compositing
+    if (params.show_canny == 1u) {
+        let edge_val = textureSample(canny_texture, canny_sampler, in.uv).r;
+        if (edge_val > 0.0) {
+            let cyan = vec3<f32>(0.0, 1.0, 1.0);
+            output_color = mix(output_color, cyan, 0.5);  // 50% alpha blend
+        }
+    }
+
+    // Layer 3: LoG edges (magenta) with 50% alpha blend compositing
+    if (params.show_log == 1u) {
+        let edge_val = textureSample(log_texture, log_sampler, in.uv).r;
+        if (edge_val > 0.0) {
+            let magenta = vec3<f32>(1.0, 0.0, 1.0);
+            output_color = mix(output_color, magenta, 0.5);  // 50% alpha blend
         }
     }
 
