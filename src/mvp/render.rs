@@ -8,6 +8,9 @@ use bevy::{
     render::render_resource::{AsBindGroup, ShaderType, Extent3d, TextureDimension, TextureFormat, TextureUsages},
     shader::ShaderRef,
 };
+use bevy_egui::{egui, EguiContexts, EguiPlugin};
+use bevy::diagnostic::FrameTimeDiagnosticsPlugin;
+use bevy_egui::EguiPrimaryContextPass;
 
 #[derive(ShaderType, Debug, Clone, Copy)]
 struct EventParams {
@@ -158,5 +161,102 @@ fn update_material_params(
     if let Some(material) = materials.get_mut(&current_material.0) {
         material.params.time = playback_state.current_time;
         material.params.show_gradient = if edge_params.show_gradient { 1 } else { 0 };
+    }
+}
+
+fn ui_system(
+    mut contexts: EguiContexts,
+    mut playback_state: ResMut<PlaybackState>,
+    mut edge_params: ResMut<EdgeParams>,
+    diagnostics: Res<bevy::diagnostic::DiagnosticsStore>,
+) {
+    let ctx = contexts.ctx_mut().expect("Failed to get egui context");
+
+    // Playback Controls
+    egui::Window::new("Playback Controls").show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            if ui.button(if playback_state.is_playing { "Pause" } else { "Play" }).clicked() {
+                playback_state.is_playing = !playback_state.is_playing;
+            }
+            ui.checkbox(&mut playback_state.looping, "Loop");
+        });
+
+        let max_time = playback_state.max_timestamp as f32;
+        ui.add(
+            egui::Slider::new(&mut playback_state.current_time, 0.0..=max_time)
+                .text("Time (μs)"),
+        );
+
+        ui.add(
+            egui::Slider::new(&mut playback_state.window_size, 1.0..=100_000.0)
+                .text("Window (μs)")
+                .logarithmic(true),
+        );
+
+        ui.add(
+            egui::Slider::new(&mut playback_state.playback_speed, 0.01..=100.0)
+                .text("Speed (×)")
+                .logarithmic(true),
+        );
+
+        ui.label(format!("Time: {:.2} ms", playback_state.current_time / 1000.0));
+        ui.label(format!("Window: {:.2} ms", playback_state.window_size / 1000.0));
+
+        if let Some(fps) = diagnostics.get(&bevy::diagnostic::FrameTimeDiagnosticsPlugin::FPS) {
+            if let Some(value) = fps.smoothed() {
+                ui.label(format!("FPS: {:.1}", value));
+            }
+        }
+    });
+
+    // Edge Detection Controls
+    egui::Window::new("Edge Detection").show(ctx, |ui| {
+        ui.checkbox(&mut edge_params.show_gradient, "Show Edge Detection (Yellow)");
+
+        ui.add(
+            egui::Slider::new(&mut edge_params.threshold, 0.0..=10_000.0)
+                .text("Edge Threshold"),
+        );
+
+        ui.label("Layer 0: Red/Blue raw events");
+        ui.label("Layer 1: Yellow edge detection (Sobel STG)");
+    });
+}
+
+pub struct EventRenderPlugin;
+
+impl Plugin for EventRenderPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(MaterialPlugin::<EventMaterial>::default())
+            .add_plugins(EguiPlugin::default())
+            .add_plugins(FrameTimeDiagnosticsPlugin::default())
+            .add_systems(Startup, (load_data, setup_scene).chain())
+            .add_systems(Update, (
+                crate::mvp::playback::playback_system,
+                update_material_params,
+            ).chain())
+            .add_systems(EguiPrimaryContextPass, ui_system);
+    }
+
+    fn finish(&self, app: &mut App) {
+        use crate::mvp::gpu::*;
+        use bevy::render::render_graph::RenderGraph;
+        use bevy::render::{RenderApp, Render, RenderSystems};
+
+        let render_app = app.sub_app_mut(RenderApp);
+
+        render_app
+            .init_resource::<EventComputePipeline>()
+            .init_resource::<GradientPipeline>()
+            .init_resource::<GpuEventBuffer>()
+            .add_systems(Render, prepare_events.in_set(RenderSystems::Prepare))
+            .add_systems(Render, queue_bind_group.in_set(RenderSystems::Queue))
+            .add_systems(Render, prepare_gradient.in_set(RenderSystems::Queue));
+
+        let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
+        render_graph.add_node(EventLabel, EventAccumulationNode::default());
+        render_graph.add_node(GradientLabel, GradientNode::default());
+        render_graph.add_node_edge(EventLabel, GradientLabel);
+        render_graph.add_node_edge(GradientLabel, bevy::render::graph::CameraDriverLabel);
     }
 }
