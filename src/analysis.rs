@@ -1057,8 +1057,6 @@ impl Node for AngularHistogramNode {
         render_context: &mut RenderContext,
         world: &World,
     ) -> Result<(), bevy::render::render_graph::NodeRunError> {
-        info!("[DIAG] AngularHistogramNode::run() called");
-
         let gpu_resources = world.resource::<AngularGpuResources>();
         let pipeline = world.resource::<AngularHistogramPipeline>();
         let pipeline_cache = world.resource::<PipelineCache>();
@@ -1074,9 +1072,6 @@ impl Node for AngularHistogramNode {
         let Some(compute_pipeline) = pipeline_cache.get_compute_pipeline(pipeline.pipeline) else {
             return Ok(());
         };
-
-        let total_events = world.resource::<crate::gpu::EventData>().events.len() as u32;
-        info!("[DIAG] Total events in buffer: {}", total_events);
 
         // Reset result buffer
         if let Some(result_buffer) = &gpu_resources.result_buffer {
@@ -1103,9 +1098,6 @@ impl Node for AngularHistogramNode {
                 let x_workgroups = total_workgroups.min(max_workgroups_per_dim);
                 let y_workgroups =
                     (total_workgroups + max_workgroups_per_dim - 1) / max_workgroups_per_dim;
-
-                info!("[DIAG] Dispatching: x_groups={}, y_groups={}, total_threads={}",
-                    x_workgroups, y_workgroups, x_workgroups * y_workgroups * 64);
 
                 pass.dispatch_workgroups(x_workgroups, y_workgroups, 1);
             }
@@ -1181,8 +1173,6 @@ fn prepare_angular_bind_group(
         return;
     };
 
-    // Debug logging removed - timestamp units verified as microseconds
-
     // Create buffers
     if gpu_resources.result_buffer.is_none() {
         let buffer = render_device.create_buffer(&BufferDescriptor {
@@ -1212,8 +1202,6 @@ fn prepare_angular_bind_group(
         0
     };
 
-    // Time window in microseconds (matches event timestamp units)
-
     let params = AngularParams {
         centroid_x: analysis.centroid.x,
         centroid_y: analysis.centroid.y,
@@ -1223,12 +1211,6 @@ fn prepare_angular_bind_group(
         window_end,
         _padding: [0; 2],
     };
-
-    info!("[DIAG] Angular params: centroid=({:.1}, {:.1}), radius={:.1}, window=[{}, {}] (span={}μs)",
-        params.centroid_x, params.centroid_y, params.radius,
-        window_start, window_end, window_end - window_start);
-
-    // Apply minimum radius filter to exclude events near center
 
     let params_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("Angular Params"),
@@ -1274,8 +1256,6 @@ fn read_angular_result_render(
         let should_reinsert = if let Ok(receiver) = receiver_mutex.try_lock() {
             match receiver.try_recv() {
                 Ok(Ok(())) => {
-                    info!("[DIAG] Angular result buffer mapped successfully");
-
                     let slice = staging_buffer.slice(..);
                     {
                         let data = slice.get_mapped_range();
@@ -1284,21 +1264,11 @@ fn read_angular_result_render(
                         // Check total events in histogram
                         let total_events: u32 = result.bins.iter().sum();
 
-                        info!("[DIAG] Angular histogram received: {} total events across 360 bins", total_events);
-
-                        // Log top 5 bins for debugging
-                        let mut bin_counts: Vec<_> = result.bins.iter().enumerate()
-                            .map(|(i, &count)| (i, count))
-                            .collect();
-                        bin_counts.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
-
-                        info!("[DIAG] Top 5 bins: {:?}", &bin_counts[..5.min(bin_counts.len())]);
-
                         // Detect peaks
                         let blade_angles = find_peaks(&result.bins, analysis.blade_count as usize);
 
-                        // Always log to debug (will remove once working)
-                        // info!("Angular histogram: {} total events, found {} peaks", total_events, blade_angles.len());
+                        // Production logging
+                        info!("Angular histogram: {} total events, found {} peaks", total_events, blade_angles.len());
 
                         let _ = sender.0.send(blade_angles);
                     }

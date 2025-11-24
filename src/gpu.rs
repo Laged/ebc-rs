@@ -45,7 +45,7 @@ pub struct PlaybackState {
 impl Default for PlaybackState {
     fn default() -> Self {
         Self {
-            is_playing: false,
+            is_playing: true,
             current_time: 20000.0,
             window_size: 1_000_000.0,  // 1 second (1,000,000us) to capture enough events for blade detection
             playback_speed: 0.1, // 0.1x default

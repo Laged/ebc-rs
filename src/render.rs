@@ -233,10 +233,8 @@ fn load_data(mut commands: Commands, mut playback_state: ResMut<PlaybackState>) 
             if let Some(first) = events.first() {
                 if let Some(last) = events.last() {
                     let span = last.timestamp - first.timestamp;
-                    info!("Timestamp range: {} to {} (span: {} units)",
-                        first.timestamp, last.timestamp, span);
-                    info!("If microseconds: {:.3} seconds", span as f64 / 1_000_000.0);
-                    info!("If 100ns units: {:.3} seconds", span as f64 / 10_000_000.0);
+                    info!("Timestamp range: {} to {} (span: {} microseconds, {:.3} seconds)",
+                        first.timestamp, last.timestamp, span, span as f64 / 1_000_000.0);
 
                     playback_state.max_timestamp = last.timestamp;
                     playback_state.current_time = last.timestamp as f32; // Start at end
