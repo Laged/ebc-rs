@@ -1103,6 +1103,10 @@ impl Node for AngularHistogramNode {
                 let x_workgroups = total_workgroups.min(max_workgroups_per_dim);
                 let y_workgroups =
                     (total_workgroups + max_workgroups_per_dim - 1) / max_workgroups_per_dim;
+
+                info!("[DIAG] Dispatching: x_groups={}, y_groups={}, total_threads={}",
+                    x_workgroups, y_workgroups, x_workgroups * y_workgroups * 64);
+
                 pass.dispatch_workgroups(x_workgroups, y_workgroups, 1);
             }
         }
@@ -1220,6 +1224,10 @@ fn prepare_angular_bind_group(
         _padding: [0; 2],
     };
 
+    info!("[DIAG] Angular params: centroid=({:.1}, {:.1}), radius={:.1}, window=[{}, {}] (span={}μs)",
+        params.centroid_x, params.centroid_y, params.radius,
+        window_start, window_end, window_end - window_start);
+
     // Apply minimum radius filter to exclude events near center
 
     let params_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
@@ -1266,13 +1274,25 @@ fn read_angular_result_render(
         let should_reinsert = if let Ok(receiver) = receiver_mutex.try_lock() {
             match receiver.try_recv() {
                 Ok(Ok(())) => {
+                    info!("[DIAG] Angular result buffer mapped successfully");
+
                     let slice = staging_buffer.slice(..);
                     {
                         let data = slice.get_mapped_range();
                         let result: AngularResult = *bytemuck::from_bytes(&data);
 
                         // Check total events in histogram
-                        let _total_events: u32 = result.bins.iter().sum();
+                        let total_events: u32 = result.bins.iter().sum();
+
+                        info!("[DIAG] Angular histogram received: {} total events across 360 bins", total_events);
+
+                        // Log top 5 bins for debugging
+                        let mut bin_counts: Vec<_> = result.bins.iter().enumerate()
+                            .map(|(i, &count)| (i, count))
+                            .collect();
+                        bin_counts.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
+
+                        info!("[DIAG] Top 5 bins: {:?}", &bin_counts[..5.min(bin_counts.len())]);
 
                         // Detect peaks
                         let blade_angles = find_peaks(&result.bins, analysis.blade_count as usize);
