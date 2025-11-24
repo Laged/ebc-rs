@@ -12,5 +12,5 @@ pub use sobel::{
     EdgeParamsBuffer, SobelBindGroup, SobelLabel, SobelNode, SobelPipeline,
     prepare_sobel,
 };
-pub use resources::{EdgeParams, EventData, GpuEventBuffer, SobelImage, SurfaceImage};
+pub use resources::{CannyImage, EdgeParams, EventData, GpuEventBuffer, LogImage, SobelImage, SurfaceImage};
 pub use types::{GpuEdgeParams, GpuEvent};
