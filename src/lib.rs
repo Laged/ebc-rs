@@ -4,6 +4,7 @@ pub mod analysis;
 pub mod gizmos;
 pub mod gpu;
 pub mod loader;
+pub mod mvp;
 pub mod plugins;
 pub mod render;
 pub mod synthesis;
