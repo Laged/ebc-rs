@@ -54,17 +54,55 @@ pub fn generate_fan_data(output_path: &Path, truth_path: &Path) -> std::io::Resu
         
         // Pick a random blade
         let blade_idx = (rand(&mut seed) * blade_count as f32) as usize;
-        let blade_angle = base_angle + (blade_idx as f32 * 2.0 * PI / blade_count as f32);
+        let blade_spacing = 2.0 * PI / blade_count as f32;
+        let root_angle = base_angle + (blade_idx as f32 * blade_spacing);
         
-        // Pick a random distance along the blade (50px to radius)
-        let r = 50.0 + rand(&mut seed) * (radius - 50.0);
+        // Pick a random radius (50px to radius)
+        let r_min = 50.0;
+        let r_max = radius;
+        let r = r_min + rand(&mut seed) * (r_max - r_min);
         
-        // Add some noise to position
-        let jitter_x = (rand(&mut seed) - 0.5) * 2.0; // +/- 1px
-        let jitter_y = (rand(&mut seed) - 0.5) * 2.0;
+        // --- Blade Shape Design ---
+        // "Fan rotor blade shapes are defined by complex mathematical formulas...
+        // based on a logarithmic spiral for a simplified design."
+        // Logarithmic Spiral: theta = k * ln(r / r0)
+        // We define a sweep angle that lags the rotation (swept back).
+        let sweep_k = 0.5; // Controls curvature
+        let sweep_angle = sweep_k * (r / r_min).ln();
+        let center_angle = root_angle + sweep_angle;
         
-        let x = center_x + r * blade_angle.cos() + jitter_x;
-        let y = center_y + r * blade_angle.sin() + jitter_y;
+        // Thickness/Width distribution
+        // We want the events to appear at the EDGES of the blade to show depth.
+        // Width: 0.5 rad at root, 0.3 rad at tip (Increased for visibility)
+        // This ensures "Blue" and "Red" lines are separated by the blade body.
+        let r_norm = (r - r_min) / (r_max - r_min);
+        let width_rad_root = 0.5; 
+        let width_rad_tip = 0.3;
+        let blade_width = width_rad_root + (width_rad_tip - width_rad_root) * r_norm;
+        let half_width = blade_width * 0.5;
+
+        // Randomly pick which edge this event belongs to:
+        // Leading Edge (Front of rotation) -> Polarity 1 (Red/ON) -> Angle + half_width
+        // Trailing Edge (Back of rotation) -> Polarity 0 (Blue/OFF) -> Angle - half_width
+        let is_leading_edge = rand(&mut seed) > 0.5;
+        
+        let (edge_offset, polarity) = if is_leading_edge {
+            (half_width, 1)
+        } else {
+            (-half_width, 0)
+        };
+        
+        // Final angle for this event
+        // Add small angular jitter to simulate edge fuzziness/sensor noise
+        let angular_jitter = (rand(&mut seed) - 0.5) * 0.02; 
+        let theta = center_angle + edge_offset + angular_jitter;
+        
+        // Add some noise to position (sensor noise)
+        let jitter_x = (rand(&mut seed) - 0.5) * 1.0; // +/- 0.5px
+        let jitter_y = (rand(&mut seed) - 0.5) * 1.0;
+        
+        let x = center_x + r * theta.cos() + jitter_x;
+        let y = center_y + r * theta.sin() + jitter_y;
         
         // Bounds check
         if x < 0.0 || x >= 1280.0 || y < 0.0 || y >= 720.0 {

@@ -4,6 +4,7 @@ use crate::gpu::{
     EventLabel, GpuEventBuffer, PlaybackState, SurfaceImage,
 };
 use crate::loader::DatLoader;
+use crate::EventFilePath; // Import the new resource
 use bevy::asset::RenderAssetUsages;
 use bevy::{
     prelude::*,
@@ -15,6 +16,10 @@ use bevy::{
     shader::ShaderRef,
 };
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
+
+// New resource to hold the handle to the main EventMaterial
+#[derive(Resource)]
+struct CurrentEventMaterialHandle(Handle<EventMaterial>);
 
 pub struct EventRenderPlugin;
 
@@ -28,7 +33,7 @@ impl Plugin for EventRenderPlugin {
             .init_resource::<SurfaceImage>()
             .init_resource::<PlaybackState>()
             .add_systems(Startup, (load_data, setup_scene).chain())
-            .add_systems(Update, (playback_system, update_material_time))
+            .add_systems(Update, (playback_system, update_material_time).chain())
             .add_systems(EguiPrimaryContextPass, ui_system);
     }
 
@@ -118,9 +123,9 @@ fn ui_system(
                     .text("Time (us)"),
             );
 
-            // Window: 1us to 1s (1,000,000us)
+            // Window: 1us to 100ms (100,000us)
             ui.add(
-                egui::Slider::new(&mut playback_state.window_size, 1.0..=1_000_000.0)
+                egui::Slider::new(&mut playback_state.window_size, 1.0..=100000.0)
                     .text("Window (us)")
                     .logarithmic(true), // Logarithmic scale for wide range
             );
@@ -216,25 +221,29 @@ fn playback_system(time: Res<Time>, mut playback_state: ResMut<PlaybackState>) {
 fn update_material_time(
     playback_state: Res<PlaybackState>,
     mut materials: ResMut<Assets<EventMaterial>>,
-    query: Query<&MeshMaterial3d<EventMaterial>>,
+    current_material_handle: Res<CurrentEventMaterialHandle>, // Use the resource
 ) {
-    for handle in query.iter() {
-        if let Some(material) = materials.get_mut(&handle.0) {
-            material.params.time = playback_state.current_time;
-        }
+    if let Some(material) = materials.get_mut(&current_material_handle.0) {
+        material.params.time = playback_state.current_time;
     }
 }
 
-fn load_data(mut commands: Commands, mut playback_state: ResMut<PlaybackState>) {
-    let path = "data/fan/fan_const_rpm.dat";
+fn load_data(
+    mut commands: Commands, 
+    mut playback_state: ResMut<PlaybackState>,
+    event_file_path: Res<EventFilePath>, // Access the resource
+) {
+    let path = &event_file_path.0; // Use the path from the resource
     match DatLoader::load(path) {
         Ok(events) => {
             info!("Loaded {} events from {}", events.len(), path);
             if let Some(first) = events.first() {
                 if let Some(last) = events.last() {
                     let span = last.timestamp - first.timestamp;
-                    info!("Timestamp range: {} to {} (span: {} microseconds, {:.3} seconds)",
-                        first.timestamp, last.timestamp, span, span as f64 / 1_000_000.0);
+                    info!("Timestamp range: {} to {} (span: {} units)",
+                        first.timestamp, last.timestamp, span);
+                    info!("If microseconds: {:.3} seconds", span as f64 / 1_000_000.0);
+                    info!("If 100ns units: {:.3} seconds", span as f64 / 10_000_000.0);
 
                     playback_state.max_timestamp = last.timestamp;
                     playback_state.current_time = last.timestamp as f32; // Start at end
@@ -297,17 +306,20 @@ fn setup_scene(
     );
 
     // Spawn quad
+    let material_handle = materials.add(EventMaterial {
+        surface_texture: image_handle,
+        params: EventParams {
+            width: 1280.0,
+            height: 720.0,
+            time: 20000.0,      // Initial value, updated by system
+            decay_tau: 50000.0, // Tau = 50ms (50000us)
+        },
+    });
+    commands.insert_resource(CurrentEventMaterialHandle(material_handle.clone())); // Insert as resource
+
     commands.spawn((
         Mesh3d(meshes.add(Rectangle::new(1280.0, 720.0))),
-        MeshMaterial3d(materials.add(EventMaterial {
-            surface_texture: image_handle,
-            params: EventParams {
-                width: 1280.0,
-                height: 720.0,
-                time: 20000.0,      // Initial value, updated by system
-                decay_tau: 50000.0, // Tau = 50ms (50000us)
-            },
-        })),
+        MeshMaterial3d(material_handle),
         Transform::from_xyz(0.0, 0.0, 0.0),
     ));
 }
