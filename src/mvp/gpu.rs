@@ -358,7 +358,7 @@ impl FromWorld for GradientPipeline {
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::StorageTexture {
                         access: StorageTextureAccess::WriteOnly,
-                        format: TextureFormat::R8Unorm,
+                        format: TextureFormat::R32Float,
                         view_dimension: TextureViewDimension::D2,
                     },
                     count: None,

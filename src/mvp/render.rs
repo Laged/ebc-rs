@@ -117,12 +117,12 @@ fn setup_scene(
     let surface_handle = images.add(surface_image);
     surface_image_res.handle = surface_handle.clone();
 
-    // Gradient texture (R8Unorm for edge magnitude)
+    // Gradient texture (R32Float for edge magnitude)
     let mut gradient_image = Image::new_fill(
         size,
         TextureDimension::D2,
-        &[0],
-        TextureFormat::R8Unorm,
+        &[0, 0, 0, 0],
+        TextureFormat::R32Float,
         RenderAssetUsages::RENDER_WORLD,
     );
     gradient_image.texture_descriptor.usage =
