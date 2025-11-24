@@ -1,5 +1,5 @@
-use crate::mvp::gpu::{EventData, SurfaceImage, GradientImage, EdgeParams};
-use crate::mvp::playback::PlaybackState;
+use crate::gpu::{EventData, SurfaceImage, GradientImage, EdgeParams};
+use crate::playback::PlaybackState;
 use crate::loader::DatLoader;
 use crate::EventFilePath;
 use bevy::asset::RenderAssetUsages;
@@ -54,12 +54,12 @@ fn load_data(
     let path = &event_file_path.0;
     match DatLoader::load(path) {
         Ok(loaded_events) => {
-            info!("MVP: Loaded {} events from {}", loaded_events.len(), path);
+            info!("Loaded {} events from {}", loaded_events.len(), path);
 
-            // Convert from crate::gpu::GpuEvent to mvp::gpu::GpuEvent
-            let events: Vec<crate::mvp::gpu::GpuEvent> = loaded_events
+            // Convert from old crate::gpu::GpuEvent to new crate::gpu::GpuEvent
+            let events: Vec<crate::gpu::GpuEvent> = loaded_events
                 .iter()
-                .map(|e| crate::mvp::gpu::GpuEvent {
+                .map(|e| crate::gpu::GpuEvent {
                     timestamp: e.timestamp,
                     x: e.x,
                     y: e.y,
@@ -70,12 +70,12 @@ fn load_data(
             if let Some(last) = events.last() {
                 playback_state.max_timestamp = last.timestamp;
                 playback_state.current_time = last.timestamp as f32;
-                info!("MVP: Timestamp range: 0 to {}", last.timestamp);
+                info!("Timestamp range: 0 to {}", last.timestamp);
             }
             commands.insert_resource(EventData { events });
         }
         Err(e) => {
-            error!("MVP: Failed to load data from {}: {:?}", path, e);
+            error!("Failed to load data from {}: {:?}", path, e);
             commands.insert_resource(EventData { events: Vec::new() });
             playback_state.max_timestamp = 0;
             playback_state.current_time = 0.0;
@@ -258,48 +258,16 @@ fn ui_system(
     });
 }
 
-pub struct EventRenderPlugin;
+pub struct EventRendererPlugin;
 
-impl Plugin for EventRenderPlugin {
+impl Plugin for EventRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(MaterialPlugin::<EventMaterial>::default())
             .add_plugins(EguiPlugin::default())
             .add_plugins(FrameTimeDiagnosticsPlugin::default())
             .add_systems(Startup, (load_data, setup_scene).chain())
-            .add_systems(Update, crate::mvp::playback::playback_system)
+            .add_systems(Update, crate::playback::playback_system)
             .add_systems(Update, update_material_params)
             .add_systems(EguiPrimaryContextPass, ui_system);
-    }
-
-    fn finish(&self, app: &mut App) {
-        use crate::mvp::gpu::*;
-        use bevy::render::render_graph::RenderGraph;
-        use bevy::render::{RenderApp, Render, RenderSystems, ExtractSchedule};
-        use bevy::render::Extract;
-
-        // Custom extraction system for EdgeParams
-        fn extract_edge_params(
-            mut commands: Commands,
-            edge_params: Extract<Res<EdgeParams>>,
-        ) {
-            commands.insert_resource(edge_params.clone());
-        }
-
-        let render_app = app.sub_app_mut(RenderApp);
-
-        render_app
-            .init_resource::<EventComputePipeline>()
-            .init_resource::<GradientPipeline>()
-            .init_resource::<GpuEventBuffer>()
-            .add_systems(ExtractSchedule, extract_edge_params)
-            .add_systems(Render, prepare_events.in_set(RenderSystems::Prepare))
-            .add_systems(Render, queue_bind_group.in_set(RenderSystems::Queue))
-            .add_systems(Render, prepare_gradient.in_set(RenderSystems::Queue));
-
-        let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
-        render_graph.add_node(EventLabel, EventAccumulationNode::default());
-        render_graph.add_node(GradientLabel, GradientNode::default());
-        render_graph.add_node_edge(EventLabel, GradientLabel);
-        render_graph.add_node_edge(GradientLabel, bevy::render::graph::CameraDriverLabel);
     }
 }

@@ -1,0 +1,49 @@
+use bevy::prelude::*;
+use bevy::render::extract_resource::ExtractResourcePlugin;
+use bevy::render::{RenderApp, Render, RenderSystems, ExtractSchedule, Extract};
+use bevy::render::render_graph::RenderGraph;
+use crate::gpu::*;
+use crate::event_renderer::EventRendererPlugin;
+
+pub struct EdgeDetectionPlugin;
+
+impl Plugin for EdgeDetectionPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<SurfaceImage>()
+            .init_resource::<GradientImage>()
+            .init_resource::<crate::playback::PlaybackState>()
+            .init_resource::<EdgeParams>()
+            .add_plugins(ExtractResourcePlugin::<EventData>::default())
+            .add_plugins(ExtractResourcePlugin::<SurfaceImage>::default())
+            .add_plugins(ExtractResourcePlugin::<GradientImage>::default())
+            .add_plugins(ExtractResourcePlugin::<crate::playback::PlaybackState>::default())
+            .add_plugins(EventRendererPlugin);
+    }
+
+    fn finish(&self, app: &mut App) {
+        // Custom extraction system for EdgeParams
+        fn extract_edge_params(
+            mut commands: Commands,
+            edge_params: Extract<Res<EdgeParams>>,
+        ) {
+            commands.insert_resource(edge_params.clone());
+        }
+
+        let render_app = app.sub_app_mut(RenderApp);
+
+        render_app
+            .init_resource::<EventComputePipeline>()
+            .init_resource::<GradientPipeline>()
+            .init_resource::<GpuEventBuffer>()
+            .add_systems(ExtractSchedule, extract_edge_params)
+            .add_systems(Render, prepare_events.in_set(RenderSystems::Prepare))
+            .add_systems(Render, queue_bind_group.in_set(RenderSystems::Queue))
+            .add_systems(Render, prepare_gradient.in_set(RenderSystems::Queue));
+
+        let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
+        render_graph.add_node(EventLabel, EventAccumulationNode::default());
+        render_graph.add_node(GradientLabel, GradientNode::default());
+        render_graph.add_node_edge(EventLabel, GradientLabel);
+        render_graph.add_node_edge(GradientLabel, bevy::render::graph::CameraDriverLabel);
+    }
+}

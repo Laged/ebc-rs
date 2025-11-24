@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use ebc_rs::mvp::MvpPlugin;
+use ebc_rs::edge_detection::EdgeDetectionPlugin;
 use ebc_rs::EventFilePath;
 
 fn main() {
@@ -10,6 +10,6 @@ fn main() {
     App::new()
         .insert_resource(EventFilePath(data_path))
         .add_plugins(DefaultPlugins)
-        .add_plugins(MvpPlugin)
+        .add_plugins(EdgeDetectionPlugin)
         .run();
 }
