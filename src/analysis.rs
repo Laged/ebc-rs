@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Write;
 
-// Event camera timestamp unit: 100 nanoseconds (not microseconds!)
-// Many event cameras use 100ns resolution for higher temporal precision
+// Event camera timestamp unit: MICROSECONDS (1us)
+// Verified from actual .dat file data (timestamps range from 4096 to 9508095 microseconds)
 
 /// Fan motion analysis state
 #[derive(Resource, Clone, ExtractResource)]
@@ -643,15 +643,12 @@ fn prepare_centroid_bind_group(
         0
     };
 
-    // Convert to 100ns units (from microseconds)
-    let start_100ns = window_start * 10;
-    let end_100ns = window_end * 10;
-
+    // Event timestamps are already in microseconds - use them directly
     let uniform = CentroidUniform {
         width: 1280,
         height: 720,
-        window_start: start_100ns,
-        window_end: end_100ns,
+        window_start,
+        window_end,
     };
 
     let uniform_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
@@ -847,7 +844,7 @@ fn update_analysis_from_render(receiver: Res<CentroidReceiver>, mut analysis: Re
     if let Ok(rx) = receiver.0.lock() {
         while let Ok((centroid, radius)) = rx.try_recv() {
             // Smooth update
-            analysis.centroid = analysis.centroid.lerp(centroid, 0.1);
+            analysis.centroid = analysis.centroid.lerp(centroid, 0.05);
             // Smooth radius update (slower lerp for stability)
             analysis.fan_radius = analysis.fan_radius + (radius - analysis.fan_radius) * 0.05;
         }
@@ -935,7 +932,7 @@ fn update_radius_from_render(receiver: Res<RadialReceiver>, mut analysis: ResMut
         while let Ok(radius) = rx.try_recv() {
             // Smooth update
             let old_radius = analysis.fan_radius;
-            analysis.fan_radius = analysis.fan_radius + (radius - analysis.fan_radius) * 0.1;
+            analysis.fan_radius = analysis.fan_radius + (radius - analysis.fan_radius) * 0.05;
             if (radius - old_radius).abs() > 20.0 {
                 info!("Large radius change: {} -> {} (detected: {})", old_radius, analysis.fan_radius, radius);
             }
@@ -1060,6 +1057,8 @@ impl Node for AngularHistogramNode {
         render_context: &mut RenderContext,
         world: &World,
     ) -> Result<(), bevy::render::render_graph::NodeRunError> {
+        info!("[DIAG] AngularHistogramNode::run() called");
+
         let gpu_resources = world.resource::<AngularGpuResources>();
         let pipeline = world.resource::<AngularHistogramPipeline>();
         let pipeline_cache = world.resource::<PipelineCache>();
@@ -1075,6 +1074,9 @@ impl Node for AngularHistogramNode {
         let Some(compute_pipeline) = pipeline_cache.get_compute_pipeline(pipeline.pipeline) else {
             return Ok(());
         };
+
+        let total_events = world.resource::<crate::gpu::EventData>().events.len() as u32;
+        info!("[DIAG] Total events in buffer: {}", total_events);
 
         // Reset result buffer
         if let Some(result_buffer) = &gpu_resources.result_buffer {
@@ -1148,11 +1150,16 @@ fn find_peaks(histogram: &[u32; 360], num_peaks: usize) -> Vec<f32> {
     peaks.sort_by(|a, b| b.1.cmp(&a.1));
 
     // Take top num_peaks and convert to radians
-    peaks
+    let mut top_peaks: Vec<f32> = peaks
         .iter()
         .take(num_peaks)
         .map(|(angle_deg, _)| (*angle_deg as f32) * std::f32::consts::PI / 180.0)
-        .collect()
+        .collect();
+
+    // Sort by angle (ascending) to ensure consistent ordering for smoothing
+    top_peaks.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    top_peaks
 }
 
 // --- Task 13: Angular Histogram Bind Group and Readback ---
@@ -1164,10 +1171,13 @@ fn prepare_angular_bind_group(
     gpu_event_buffer: Res<crate::gpu::GpuEventBuffer>,
     playback_state: Res<crate::gpu::PlaybackState>,
     analysis: Res<FanAnalysis>,
+    _event_data: Res<crate::gpu::EventData>,
 ) {
     let Some(event_buffer) = &gpu_event_buffer.buffer else {
         return;
     };
+
+    // Debug logging removed - timestamp units verified as microseconds
 
     // Create buffers
     if gpu_resources.result_buffer.is_none() {
@@ -1198,15 +1208,19 @@ fn prepare_angular_bind_group(
         0
     };
 
+    // Time window in microseconds (matches event timestamp units)
+
     let params = AngularParams {
         centroid_x: analysis.centroid.x,
         centroid_y: analysis.centroid.y,
-        radius: analysis.fan_radius,
-        radius_tolerance: 50.0, // Accept events within ±50px of radius (wider for better detection)
-        window_start: window_start * 10, // Convert to 100ns units
-        window_end: window_end * 10,
+        radius: 30.0, // Minimum radius - exclude events too close to center
+        radius_tolerance: 999999.0, // Effectively infinite max radius (accept all outer events)
+        window_start, // Event timestamps are in microseconds - use directly
+        window_end,
         _padding: [0; 2],
     };
+
+    // Apply minimum radius filter to exclude events near center
 
     let params_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("Angular Params"),
@@ -1258,14 +1272,13 @@ fn read_angular_result_render(
                         let result: AngularResult = *bytemuck::from_bytes(&data);
 
                         // Check total events in histogram
-                        let total_events: u32 = result.bins.iter().sum();
+                        let _total_events: u32 = result.bins.iter().sum();
 
                         // Detect peaks
                         let blade_angles = find_peaks(&result.bins, analysis.blade_count as usize);
 
-                        if total_events > 0 {
-                            info!("Angular histogram: {} total events, found {} peaks", total_events, blade_angles.len());
-                        }
+                        // Always log to debug (will remove once working)
+                        // info!("Angular histogram: {} total events, found {} peaks", total_events, blade_angles.len());
 
                         let _ = sender.0.send(blade_angles);
                     }
@@ -1305,11 +1318,31 @@ fn read_angular_result_render(
     }
 }
 
+/// Linear interpolation for angles (handles wrap-around)
+fn lerp_angle(start: f32, end: f32, t: f32) -> f32 {
+    let two_pi = 2.0 * std::f32::consts::PI;
+    let diff = (end - start + std::f32::consts::PI) % two_pi - std::f32::consts::PI;
+    let diff = if diff < -std::f32::consts::PI { diff + two_pi } else { diff };
+    start + diff * t
+}
+
 fn update_blades_from_render(receiver: Res<AngularReceiver>, mut analysis: ResMut<FanAnalysis>) {
     if let Ok(rx) = receiver.0.lock() {
         while let Ok(blade_angles) = rx.try_recv() {
-            info!("Detected {} blade angles: {:?}", blade_angles.len(), blade_angles);
-            analysis.blade_angles = blade_angles;
+            // info!("Detected {} blade angles: {:?}", blade_angles.len(), blade_angles);
+            
+            if blade_angles.len() == analysis.blade_angles.len() {
+                // Smooth updates if count matches
+                let mut smoothed_angles = Vec::with_capacity(blade_angles.len());
+                for (i, &target_angle) in blade_angles.iter().enumerate() {
+                    let current_angle = analysis.blade_angles[i];
+                    smoothed_angles.push(lerp_angle(current_angle, target_angle, 0.1));
+                }
+                analysis.blade_angles = smoothed_angles;
+            } else {
+                // Count changed, snap to new values
+                analysis.blade_angles = blade_angles;
+            }
         }
     }
 }
