@@ -4,6 +4,7 @@
 //! for fan geometry detection and RPM calculation.
 
 use bevy::prelude::*;
+use crate::metrics::{EdgeMetrics, extract_edge_pixels, fit_circle_ransac, angular_histogram, find_angular_peaks};
 
 /// Edge data received from GPU readback
 #[derive(Resource, Default, Clone)]
@@ -33,7 +34,8 @@ pub struct AnalysisPlugin;
 impl Plugin for AnalysisPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<EdgeData>()
-            .add_systems(Update, receive_edge_data);
+            .init_resource::<EdgeMetrics>()
+            .add_systems(Update, (receive_edge_data, compute_metrics).chain());
     }
 }
 
@@ -49,5 +51,41 @@ fn receive_edge_data(
                 edge_data.updated = true;
             }
         }
+    }
+}
+
+fn compute_metrics(
+    edge_data: Res<EdgeData>,
+    mut metrics: ResMut<EdgeMetrics>,
+) {
+    if !edge_data.updated || edge_data.pixels.is_empty() {
+        return;
+    }
+
+    // Compute basic metrics
+    *metrics = EdgeMetrics::compute_basic(&edge_data.pixels, edge_data.width, edge_data.height);
+
+    // Extract edge pixels for advanced analysis
+    let edge_pixels = extract_edge_pixels(&edge_data.pixels, edge_data.width);
+
+    if edge_pixels.len() < 100 {
+        return; // Not enough edges for reliable analysis
+    }
+
+    // RANSAC circle fitting
+    if let Some((center, radius, error, inlier_ratio)) =
+        fit_circle_ransac(&edge_pixels, 200, 5.0)
+    {
+        metrics.circle_center = center;
+        metrics.circle_radius = radius;
+        metrics.circle_fit_error = error;
+        metrics.circle_inlier_ratio = inlier_ratio;
+
+        // Angular histogram from detected center
+        let histogram = angular_histogram(&edge_pixels, center, 360);
+        let peaks = find_angular_peaks(&histogram, 50);
+
+        metrics.angular_peaks = peaks.clone();
+        metrics.detected_blade_count = peaks.len() as u32;
     }
 }
