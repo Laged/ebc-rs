@@ -46,6 +46,37 @@ pub struct GpuEventBuffer {
     pub bind_group_ready: bool,
 }
 
+/// Buffer for reading edge texture data back to CPU
+#[derive(Resource, Default)]
+pub struct EdgeReadbackBuffer {
+    /// Staging buffer for Sobel texture readback
+    pub sobel_staging: Option<Buffer>,
+    /// Staging buffer for Canny texture readback
+    pub canny_staging: Option<Buffer>,
+    /// Staging buffer for LoG texture readback
+    pub log_staging: Option<Buffer>,
+    /// Texture dimensions
+    pub dimensions: UVec2,
+    /// CPU-side edge data (Sobel)
+    pub sobel_data: Vec<f32>,
+    /// CPU-side edge data (Canny)
+    pub canny_data: Vec<f32>,
+    /// CPU-side edge data (LoG)
+    pub log_data: Vec<f32>,
+    /// Whether data is ready for CPU consumption
+    pub ready: bool,
+    /// Which detector to read back (to avoid reading all three every frame)
+    pub active_detector: ActiveDetector,
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum ActiveDetector {
+    #[default]
+    Sobel,
+    Canny,
+    Log,
+}
+
 // Edge detection parameters
 #[derive(Resource, Clone)]
 pub struct EdgeParams {
