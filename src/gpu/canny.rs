@@ -101,7 +101,7 @@ pub fn prepare_canny(
 ) {
     // Pack Canny params with correct types matching WGSL struct
     let gpu_params = GpuCannyParams {
-        sigma: edge_params.canny_sigma,
+        sigma: 1.4, // Fixed value - not actually used in shader (kernel is fixed)
         low_threshold: edge_params.canny_low_threshold,
         high_threshold: edge_params.canny_high_threshold,
         _padding: 0.0,

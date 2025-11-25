@@ -6,7 +6,7 @@ use bevy::render::{
     render_asset::RenderAssets,
     texture::GpuImage,
 };
-use super::types::GpuEdgeParams;
+use super::types::GpuParams;
 use super::resources::{EdgeParams, SurfaceImage, SobelImage};
 
 #[derive(Resource)]
@@ -90,12 +90,19 @@ pub fn prepare_sobel(
     edge_buffer: Option<Res<EdgeParamsBuffer>>,
 ) {
     // Pack all edge params with correct types matching WGSL struct
-    let gpu_params = GpuEdgeParams {
-        threshold: edge_params.threshold,
+    let gpu_params = GpuParams {
         filter_dead_pixels: if edge_params.filter_dead_pixels { 1 } else { 0 },
         filter_density: if edge_params.filter_density { 1 } else { 0 },
-        filter_bidirectional: if edge_params.filter_bidirectional { 1 } else { 0 },
         filter_temporal: if edge_params.filter_temporal { 1 } else { 0 },
+        min_density_count: edge_params.min_density_count,
+        min_temporal_spread: edge_params.min_temporal_spread_us,
+        sobel_threshold: edge_params.sobel_threshold,
+        canny_low_threshold: edge_params.canny_low_threshold,
+        canny_high_threshold: edge_params.canny_high_threshold,
+        log_threshold: edge_params.log_threshold,
+        filter_bidirectional: if edge_params.filter_bidirectional { 1 } else { 0 },
+        bidirectional_ratio: edge_params.bidirectional_ratio,
+        _padding: 0.0,
     };
 
     // Create or update edge params buffer

@@ -84,24 +84,34 @@ pub enum ActiveDetector {
 // Edge detection parameters
 #[derive(Resource, Clone)]
 pub struct EdgeParams {
-    pub threshold: f32,
-    // Detector toggles
+    // Pre-processing
+    pub filter_dead_pixels: bool,
+    pub filter_density: bool,
+    pub filter_temporal: bool,
+    pub min_density_count: u32,
+    pub min_temporal_spread_us: f32,
+
+    // Detector toggles (UI only)
     pub show_sobel: bool,
     pub show_canny: bool,
     pub show_log: bool,
     pub show_raw: bool,
-    // Sobel filter toggles (keyboard 1/2/3/4)
-    pub filter_dead_pixels: bool,     // Filter 1: Dead pixel check
-    pub filter_density: bool,          // Filter 2: Event density check
-    pub filter_bidirectional: bool,    // Filter 3: Bidirectional gradient
-    pub filter_temporal: bool,         // Filter 4: Temporal variance
-    // Canny parameters
-    pub canny_sigma: f32,
+
+    // Sobel
+    pub sobel_threshold: f32,
+    // Keep old `threshold` field for backwards compatibility
+    pub threshold: f32,
+
+    // Canny
     pub canny_low_threshold: f32,
     pub canny_high_threshold: f32,
-    // LoG parameters
-    pub log_sigma: f32,
+
+    // LoG
     pub log_threshold: f32,
+
+    // Post-processing
+    pub filter_bidirectional: bool,
+    pub bidirectional_ratio: f32,
 }
 
 impl ExtractResource for EdgeParams {
@@ -115,24 +125,22 @@ impl ExtractResource for EdgeParams {
 impl Default for EdgeParams {
     fn default() -> Self {
         Self {
-            threshold: 1000.0,
-            // Detector toggles
+            filter_dead_pixels: true,
+            filter_density: false,
+            filter_temporal: false,
+            min_density_count: 5,
+            min_temporal_spread_us: 500.0,
             show_sobel: true,
             show_canny: false,
             show_log: false,
             show_raw: false,
-            // Sobel filter toggles (only dead pixels ON by default)
-            filter_dead_pixels: true,
-            filter_density: false,
-            filter_bidirectional: false,
-            filter_temporal: false,
-            // Canny parameters
-            canny_sigma: 1.4,
+            sobel_threshold: 1000.0,
+            threshold: 1000.0, // Keep for backwards compatibility
             canny_low_threshold: 50.0,
             canny_high_threshold: 150.0,
-            // LoG parameters
-            log_sigma: 1.4,
             log_threshold: 10.0,
+            filter_bidirectional: false,
+            bidirectional_ratio: 0.3,
         }
     }
 }

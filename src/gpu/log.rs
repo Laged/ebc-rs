@@ -99,7 +99,7 @@ pub fn prepare_log(
 ) {
     // Pack LoG params with correct types matching WGSL struct
     let gpu_params = GpuLogParams {
-        sigma: edge_params.log_sigma,
+        sigma: 1.4, // Fixed value - not actually used in shader (kernel is fixed)
         threshold: edge_params.log_threshold,
     };
 
