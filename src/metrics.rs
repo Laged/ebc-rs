@@ -93,3 +93,122 @@ impl EdgeMetrics {
         }
     }
 }
+
+/// Extract edge pixel coordinates from flat array
+pub fn extract_edge_pixels(pixels: &[f32], width: u32) -> Vec<Vec2> {
+    pixels
+        .iter()
+        .enumerate()
+        .filter_map(|(i, &v)| {
+            if v > 0.0 {
+                let x = (i % width as usize) as f32;
+                let y = (i / width as usize) as f32;
+                Some(Vec2::new(x, y))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Fit circle through 3 points
+/// Returns (center, radius) or None if points are collinear
+fn fit_circle_3_points(p1: Vec2, p2: Vec2, p3: Vec2) -> Option<(Vec2, f32)> {
+    let ax = p1.x;
+    let ay = p1.y;
+    let bx = p2.x;
+    let by = p2.y;
+    let cx = p3.x;
+    let cy = p3.y;
+
+    let d = 2.0 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+    if d.abs() < 1e-10 {
+        return None; // Collinear points
+    }
+
+    let ux = ((ax * ax + ay * ay) * (by - cy)
+        + (bx * bx + by * by) * (cy - ay)
+        + (cx * cx + cy * cy) * (ay - by))
+        / d;
+    let uy = ((ax * ax + ay * ay) * (cx - bx)
+        + (bx * bx + by * by) * (ax - cx)
+        + (cx * cx + cy * cy) * (bx - ax))
+        / d;
+
+    let center = Vec2::new(ux, uy);
+    let radius = center.distance(p1);
+
+    Some((center, radius))
+}
+
+/// RANSAC circle fitting
+/// Returns (center, radius, fit_error, inlier_ratio)
+pub fn fit_circle_ransac(
+    edge_pixels: &[Vec2],
+    iterations: u32,
+    inlier_threshold: f32,
+) -> Option<(Vec2, f32, f32, f32)> {
+    if edge_pixels.len() < 3 {
+        return None;
+    }
+
+    let mut best_center = Vec2::ZERO;
+    let mut best_radius = 0.0f32;
+    let mut best_inliers = 0usize;
+    let mut rng_state = 12345u32; // Simple LCG
+
+    let rand_idx = |state: &mut u32, max: usize| -> usize {
+        *state = state.wrapping_mul(1103515245).wrapping_add(12345);
+        (*state as usize) % max
+    };
+
+    for _ in 0..iterations {
+        // Sample 3 random points
+        let i1 = rand_idx(&mut rng_state, edge_pixels.len());
+        let i2 = rand_idx(&mut rng_state, edge_pixels.len());
+        let i3 = rand_idx(&mut rng_state, edge_pixels.len());
+
+        if i1 == i2 || i2 == i3 || i1 == i3 {
+            continue;
+        }
+
+        let Some((center, radius)) =
+            fit_circle_3_points(edge_pixels[i1], edge_pixels[i2], edge_pixels[i3])
+        else {
+            continue;
+        };
+
+        // Skip unreasonable circles
+        if radius < 10.0 || radius > 500.0 {
+            continue;
+        }
+
+        // Count inliers
+        let inliers: usize = edge_pixels
+            .iter()
+            .filter(|p| (p.distance(center) - radius).abs() < inlier_threshold)
+            .count();
+
+        if inliers > best_inliers {
+            best_inliers = inliers;
+            best_center = center;
+            best_radius = radius;
+        }
+    }
+
+    if best_inliers < 10 {
+        return None;
+    }
+
+    // Compute fit error as average distance from circle
+    let total_error: f32 = edge_pixels
+        .iter()
+        .filter(|p| (p.distance(best_center) - best_radius).abs() < inlier_threshold)
+        .map(|p| (p.distance(best_center) - best_radius).abs())
+        .sum();
+
+    let fit_error = total_error / best_inliers as f32;
+    let inlier_ratio = best_inliers as f32 / edge_pixels.len() as f32;
+
+    Some((best_center, best_radius, fit_error, inlier_ratio))
+}
