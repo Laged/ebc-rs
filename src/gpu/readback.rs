@@ -154,7 +154,10 @@ pub fn prepare_readback(
 pub fn read_readback_result(
     readback: ResMut<EdgeReadbackBuffer>,
     sender: Option<Res<crate::analysis::EdgeDataSender>>,
+    render_device: Res<RenderDevice>,
 ) {
+    // Poll the device to process pending callbacks (including map_async)
+    let _ = render_device.poll(PollType::Poll);
     let readback = readback.into_inner();
 
     // Get the active staging buffer
