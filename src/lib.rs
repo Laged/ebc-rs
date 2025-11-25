@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 pub mod analysis;
+pub mod compare;
 pub mod edge_detection;
 pub mod event_renderer;
 pub mod gpu;
