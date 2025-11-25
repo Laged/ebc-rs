@@ -282,6 +282,10 @@ fn run_hypertest(
         inlier_ratio: inlier_ratios.iter().sum::<f32>() / n,
         detected_blade_count: blade_counts.iter().sum::<u32>() as f32 / n,
         frames_processed: edge_counts.len(),
+        precision: 0.0,  // TODO: Compute from ground truth when available
+        recall: 0.0,     // TODO: Compute from ground truth when available
+        f1_score: 0.0,   // TODO: Compute from ground truth when available
+        iou: 0.0,        // TODO: Compute from ground truth when available
     }
 }
 

@@ -12,7 +12,7 @@ use bevy::render::{
     texture::GpuImage,
 };
 use super::resources::{EdgeReadbackBuffer, ActiveDetector};
-use super::{SobelImage, CannyImage, LogImage};
+use super::{SobelImage, CannyImage, LogImage, GroundTruthImage};
 
 /// Render graph label for the readback node
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
@@ -89,6 +89,33 @@ impl Node for ReadbackNode {
             },
         );
 
+        // Also copy ground truth texture if available (for metric computation)
+        if let Some(gt_staging) = &readback.ground_truth_staging {
+            let gt_image = world.resource::<GroundTruthImage>();
+            if let Some(gt_gpu) = gpu_images.get(&gt_image.handle) {
+                // Ground truth is RGBA8, so 4 bytes per pixel
+                let gt_bytes_per_row = readback.dimensions.x * 4;
+                let gt_padded_bytes_per_row = (gt_bytes_per_row + 255) & !255;
+
+                render_context.command_encoder().copy_texture_to_buffer(
+                    gt_gpu.texture.as_image_copy(),
+                    TexelCopyBufferInfo {
+                        buffer: gt_staging,
+                        layout: TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(gt_padded_bytes_per_row),
+                            rows_per_image: Some(readback.dimensions.y),
+                        },
+                    },
+                    Extent3d {
+                        width: readback.dimensions.x,
+                        height: readback.dimensions.y,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+        }
+
         Ok(())
     }
 }
@@ -139,11 +166,24 @@ pub fn prepare_readback(
             mapped_at_creation: false,
         }));
 
+        // Create ground truth staging buffer (RGBA8, so 4 bytes per pixel instead of R32Float)
+        let gt_bytes_per_row = width * 4; // RGBA8 = 4 bytes per pixel
+        let gt_padded_bytes_per_row = (gt_bytes_per_row + 255) & !255;
+        let gt_buffer_size = (gt_padded_bytes_per_row * height) as u64;
+
+        readback.ground_truth_staging = Some(render_device.create_buffer(&BufferDescriptor {
+            label: Some("Ground Truth Readback Staging"),
+            size: gt_buffer_size,
+            usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        }));
+
         // Allocate CPU-side vectors
         let pixel_count = (width * height) as usize;
         readback.sobel_data = vec![0.0; pixel_count];
         readback.canny_data = vec![0.0; pixel_count];
         readback.log_data = vec![0.0; pixel_count];
+        readback.ground_truth_data = vec![0.0; pixel_count];
 
         info!("Created readback buffers: {}x{} ({} pixels)", width, height, pixel_count);
     }

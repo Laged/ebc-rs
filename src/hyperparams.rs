@@ -2,6 +2,46 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Metrics for comparing detector output against ground truth
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct EdgeMetrics {
+    pub true_positives: u32,
+    pub false_positives: u32,
+    pub false_negatives: u32,
+    pub precision: f32,
+    pub recall: f32,
+    pub f1_score: f32,
+    pub iou: f32,
+}
+
+impl EdgeMetrics {
+    /// Compute metrics from edge counts
+    pub fn compute(detector_edges: &[f32], ground_truth_edges: &[f32], threshold: f32) -> Self {
+        let mut tp = 0u32;
+        let mut fp = 0u32;
+        let mut fn_ = 0u32;
+
+        for (det, gt) in detector_edges.iter().zip(ground_truth_edges.iter()) {
+            let det_edge = *det > threshold;
+            let gt_edge = *gt > 0.5;
+
+            match (det_edge, gt_edge) {
+                (true, true) => tp += 1,
+                (true, false) => fp += 1,
+                (false, true) => fn_ += 1,
+                (false, false) => {}
+            }
+        }
+
+        let precision = if tp + fp > 0 { tp as f32 / (tp + fp) as f32 } else { 0.0 };
+        let recall = if tp + fn_ > 0 { tp as f32 / (tp + fn_) as f32 } else { 0.0 };
+        let f1_score = if precision + recall > 0.0 { 2.0 * precision * recall / (precision + recall) } else { 0.0 };
+        let iou = if tp + fp + fn_ > 0 { tp as f32 / (tp + fp + fn_) as f32 } else { 0.0 };
+
+        Self { true_positives: tp, false_positives: fp, false_negatives: fn_, precision, recall, f1_score, iou }
+    }
+}
+
 /// Configuration for a single hyperparameter test run.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct HyperConfig {
@@ -112,6 +152,10 @@ pub struct HyperResult {
     pub inlier_ratio: f32,
     pub detected_blade_count: f32,
     pub frames_processed: usize,
+    pub precision: f32,
+    pub recall: f32,
+    pub f1_score: f32,
+    pub iou: f32,
 }
 
 impl HyperResult {
@@ -127,6 +171,10 @@ impl HyperResult {
             inlier_ratio: 0.0,
             detected_blade_count: 0.0,
             frames_processed: 0,
+            precision: 0.0,
+            recall: 0.0,
+            f1_score: 0.0,
+            iou: 0.0,
         }
     }
 
@@ -197,14 +245,14 @@ pub fn export_csv(results: &[HyperResult], path: &std::path::Path) -> std::io::R
         "detector,window_size,threshold,canny_low,canny_high,\
          filter_dead,filter_density,filter_temporal,filter_bidir,\
          avg_edges,density,centroid_stab,radius_stab,fit_error,\
-         inlier_ratio,blades,frames,score"
+         inlier_ratio,blades,frames,precision,recall,f1_score,iou,score"
     )?;
 
     // Data rows
     for r in results {
         writeln!(
             file,
-            "{},{},{},{},{},{},{},{},{},{:.0},{:.4},{:.2},{:.2},{:.2},{:.2},{:.1},{},{}",
+            "{},{},{},{},{},{},{},{},{},{:.0},{:.4},{:.2},{:.2},{:.2},{:.2},{:.1},{},{:.4},{:.4},{:.4},{:.4},{:.2}",
             r.config.detector,
             r.config.window_size_us,
             r.config.threshold,
@@ -222,6 +270,10 @@ pub fn export_csv(results: &[HyperResult], path: &std::path::Path) -> std::io::R
             r.inlier_ratio,
             r.detected_blade_count,
             r.frames_processed,
+            r.precision,
+            r.recall,
+            r.f1_score,
+            r.iou,
             r.score()
         )?;
     }

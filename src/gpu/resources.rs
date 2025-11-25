@@ -67,6 +67,8 @@ pub struct EdgeReadbackBuffer {
     pub canny_staging: Option<Buffer>,
     /// Staging buffer for LoG texture readback
     pub log_staging: Option<Buffer>,
+    /// Staging buffer for ground truth texture readback
+    pub ground_truth_staging: Option<Buffer>,
     /// Texture dimensions
     pub dimensions: UVec2,
     /// CPU-side edge data (Sobel)
@@ -75,6 +77,8 @@ pub struct EdgeReadbackBuffer {
     pub canny_data: Vec<f32>,
     /// CPU-side edge data (LoG)
     pub log_data: Vec<f32>,
+    /// CPU-side ground truth data (R channel = edges)
+    pub ground_truth_data: Vec<f32>,
     /// Whether data is ready for CPU consumption
     pub ready: bool,
     /// Which detector to read back (to avoid reading all three every frame)
