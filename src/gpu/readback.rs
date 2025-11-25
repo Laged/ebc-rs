@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy::render::{
     render_graph::{Node, RenderLabel},
     render_resource::*,
-    renderer::RenderContext,
+    renderer::{RenderContext, RenderDevice},
     render_asset::RenderAssets,
     texture::GpuImage,
 };
@@ -84,5 +84,61 @@ impl Node for ReadbackNode {
         );
 
         Ok(())
+    }
+}
+
+/// System to create/update staging buffers for readback
+pub fn prepare_readback(
+    render_device: Res<RenderDevice>,
+    mut readback: ResMut<EdgeReadbackBuffer>,
+    sobel_image: Res<SobelImage>,
+    gpu_images: Res<RenderAssets<GpuImage>>,
+) {
+    // Get dimensions from Sobel texture (all edge textures are same size)
+    let Some(gpu_image) = gpu_images.get(&sobel_image.handle) else {
+        return;
+    };
+
+    let width = gpu_image.texture.width();
+    let height = gpu_image.texture.height();
+
+    // Update dimensions if changed
+    if readback.dimensions.x != width || readback.dimensions.y != height {
+        readback.dimensions = UVec2::new(width, height);
+
+        // Calculate buffer size with row padding
+        let bytes_per_row = width * 4; // R32Float = 4 bytes
+        let padded_bytes_per_row = (bytes_per_row + 255) & !255;
+        let buffer_size = (padded_bytes_per_row * height) as u64;
+
+        // Create staging buffers for each detector
+        readback.sobel_staging = Some(render_device.create_buffer(&BufferDescriptor {
+            label: Some("Sobel Readback Staging"),
+            size: buffer_size,
+            usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        }));
+
+        readback.canny_staging = Some(render_device.create_buffer(&BufferDescriptor {
+            label: Some("Canny Readback Staging"),
+            size: buffer_size,
+            usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        }));
+
+        readback.log_staging = Some(render_device.create_buffer(&BufferDescriptor {
+            label: Some("LoG Readback Staging"),
+            size: buffer_size,
+            usage: BufferUsages::COPY_DST | BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        }));
+
+        // Allocate CPU-side vectors
+        let pixel_count = (width * height) as usize;
+        readback.sobel_data = vec![0.0; pixel_count];
+        readback.canny_data = vec![0.0; pixel_count];
+        readback.log_data = vec![0.0; pixel_count];
+
+        info!("Created readback buffers: {}x{} ({} pixels)", width, height, pixel_count);
     }
 }

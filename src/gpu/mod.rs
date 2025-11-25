@@ -25,4 +25,4 @@ pub use sobel::{
 };
 pub use resources::{ActiveDetector, CannyImage, EdgeParams, EdgeReadbackBuffer, EventData, GpuEventBuffer, LogImage, SobelImage, SurfaceImage};
 pub use types::{GpuEdgeParams, GpuEvent};
-pub use readback::{ReadbackLabel, ReadbackNode};
+pub use readback::{ReadbackLabel, ReadbackNode, prepare_readback};
