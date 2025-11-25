@@ -1,8 +1,6 @@
 //! Multi-detector readback for metrics computation.
 
 use bevy::prelude::*;
-use bevy::render::render_resource::*;
-use bevy::render::renderer::RenderDevice;
 use std::sync::mpsc::{Sender, Receiver};
 use std::sync::Mutex;
 

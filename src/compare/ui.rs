@@ -1,7 +1,7 @@
 //! Egui overlay for metrics display.
 
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use super::{AllDetectorMetrics, DetectorMetrics};
 
@@ -56,18 +56,19 @@ pub fn draw_metrics_overlay(
     });
 
     // Metrics panels for each quadrant
+    // Use fixed dimensions based on known window size (2560x1440)
     let panel_width = 200.0;
     let panel_height = 100.0;
+    let screen_width = 2560.0;
+    let screen_height = 1440.0;
 
     // Top-left: Raw
     draw_detector_panel(ctx, "RAW", &metrics.raw, 10.0, 40.0, panel_width, panel_height);
 
     // Top-right: Sobel
-    let screen_width = ctx.viewport_rect().width();
     draw_detector_panel(ctx, "SOBEL", &metrics.sobel, screen_width / 2.0 + 10.0, 40.0, panel_width, panel_height);
 
     // Bottom-left: Canny
-    let screen_height = ctx.viewport_rect().height();
     draw_detector_panel(ctx, "CANNY", &metrics.canny, 10.0, screen_height / 2.0 + 10.0, panel_width, panel_height);
 
     // Bottom-right: LoG
@@ -123,6 +124,8 @@ impl Plugin for CompareUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DataFileState>()
             .init_resource::<AllDetectorMetrics>()
-            .add_systems(Update, (draw_metrics_overlay, handle_file_input));
+            // Use EguiPrimaryContextPass schedule for egui systems
+            .add_systems(EguiPrimaryContextPass, draw_metrics_overlay)
+            .add_systems(Update, handle_file_input);
     }
 }

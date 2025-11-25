@@ -12,7 +12,6 @@ use bevy::prelude::*;
 use bevy::asset::RenderAssetUsages;
 use bevy::render::render_resource::*;
 use bevy::window::WindowResolution;
-use bevy_egui::EguiPlugin;
 use clap::Parser;
 use std::path::PathBuf;
 
@@ -82,7 +81,7 @@ fn main() {
             }),
             ..default()
         }))
-        .add_plugins(EguiPlugin::default())
+        // Note: EguiPlugin is added by EdgeDetectionPlugin (via EventRendererPlugin)
         .add_plugins(EdgeDetectionPlugin)
         .add_plugins(CompositeRenderPlugin)
         .add_plugins(CompareUiPlugin)
@@ -120,19 +119,7 @@ fn setup_composite_texture(
     let handle = images.add(composite);
     commands.insert_resource(CompositeImage { handle: handle.clone() });
 
-    // Spawn sprite to display composite
-    commands.spawn((
-        Sprite {
-            image: handle,
-            custom_size: Some(Vec2::new(2560.0, 1440.0)),
-            ..default()
-        },
-        Transform::from_xyz(0.0, 0.0, 0.0),
-    ));
-
-    // Camera
-    commands.spawn((
-        Camera2d,
-        Transform::from_xyz(1280.0, 720.0, 100.0),
-    ));
+    // Note: We don't spawn the sprite or camera here.
+    // The existing EdgeDetectionPlugin handles rendering the event surface.
+    // The composite shader will combine all detector outputs in the render graph.
 }
