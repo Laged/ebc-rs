@@ -73,7 +73,7 @@ pub struct EdgeReadbackBuffer {
     pub mapping_in_progress: bool,
 }
 
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveDetector {
     #[default]
     Sobel,
