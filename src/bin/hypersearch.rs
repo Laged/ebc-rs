@@ -154,7 +154,14 @@ fn main() {
                 best.config.filter_temporal);
             println!("  Avg edges:     {:.0}", best.avg_edge_count);
             println!("  Centroid std:  {:.2} px", best.centroid_stability);
-            println!("  Inlier ratio:  {:.1}%", best.inlier_ratio * 100.0);
+            if best.f1_score > 0.0 {
+                println!("  Precision:     {:.1}%", best.precision * 100.0);
+                println!("  Recall:        {:.1}%", best.recall * 100.0);
+                println!("  F1 Score:      {:.1}%", best.f1_score * 100.0);
+                println!("  IoU:           {:.1}%", best.iou * 100.0);
+            } else {
+                println!("  Inlier ratio:  {:.1}%", best.inlier_ratio * 100.0);
+            }
             println!("  Score:         {:.2}", best.score());
 
             // Save best config to JSON
@@ -175,7 +182,14 @@ fn main() {
         println!("Window size:    {:.0} us", best.config.window_size_us);
         println!("Threshold:      {:.0}", best.config.threshold);
         println!("Centroid std:   {:.2} px", best.centroid_stability);
-        println!("Inlier ratio:   {:.1}%", best.inlier_ratio * 100.0);
+        if best.f1_score > 0.0 {
+            println!("Precision:      {:.1}%", best.precision * 100.0);
+            println!("Recall:         {:.1}%", best.recall * 100.0);
+            println!("F1 Score:       {:.1}%", best.f1_score * 100.0);
+            println!("IoU:            {:.1}%", best.iou * 100.0);
+        } else {
+            println!("Inlier ratio:   {:.1}%", best.inlier_ratio * 100.0);
+        }
         println!("Score:          {:.2}", best.score());
     }
 }

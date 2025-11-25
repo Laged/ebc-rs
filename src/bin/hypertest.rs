@@ -30,6 +30,7 @@ use ebc_rs::{
         SobelImage, SobelLabel, SobelNode, SobelPipeline, SurfaceImage,
     },
     hyperparams::{HyperConfig, HyperResult},
+    ground_truth::{GroundTruthConfig, GroundTruthMetrics},
     metrics::EdgeMetrics,
     playback::PlaybackState,
 };
@@ -156,6 +157,9 @@ fn run_hypertest(
     // Init task pool
     let _ = IoTaskPool::get_or_init(|| TaskPoolBuilder::default().num_threads(1).build());
 
+    // Try to load ground truth config
+    let ground_truth = GroundTruthConfig::load_from_sidecar(data_path);
+
     // Metrics collection
     let mut edge_counts: Vec<u32> = Vec::new();
     let mut edge_densities: Vec<f32> = Vec::new();
@@ -164,6 +168,9 @@ fn run_hypertest(
     let mut circle_fit_errors: Vec<f32> = Vec::new();
     let mut inlier_ratios: Vec<f32> = Vec::new();
     let mut blade_counts: Vec<u32> = Vec::new();
+
+    // Ground truth metrics collection
+    let mut gt_metrics: Vec<GroundTruthMetrics> = Vec::new();
 
     // Setup headless Bevy app
     let mut app = App::new();
@@ -250,6 +257,9 @@ fn run_hypertest(
 
         // Compute and record metrics (after warmup)
         if i >= warmup_frames {
+            let playback_state = app.world().resource::<PlaybackState>();
+            let current_time = playback_state.current_time;
+
             let edge_data = app.world().resource::<EdgeData>();
             if !edge_data.pixels.is_empty() {
                 let metrics =
@@ -262,6 +272,17 @@ fn run_hypertest(
                 circle_fit_errors.push(metrics.circle_fit_error);
                 inlier_ratios.push(metrics.circle_inlier_ratio);
                 blade_counts.push(metrics.detected_blade_count);
+
+                // Compute ground truth metrics if available
+                if let Some(ref gt_config) = ground_truth {
+                    let gt_mask = gt_config.generate_edge_mask(
+                        current_time,
+                        edge_data.width,
+                        edge_data.height,
+                    );
+                    let gt_result = GroundTruthMetrics::compute(&edge_data.pixels, &gt_mask);
+                    gt_metrics.push(gt_result);
+                }
             }
         }
     }
@@ -271,6 +292,19 @@ fn run_hypertest(
     if n == 0.0 {
         return HyperResult::empty(config);
     }
+
+    // Compute average ground truth metrics
+    let (precision, recall, f1_score, iou) = if !gt_metrics.is_empty() {
+        let gt_n = gt_metrics.len() as f32;
+        (
+            gt_metrics.iter().map(|m| m.precision).sum::<f32>() / gt_n,
+            gt_metrics.iter().map(|m| m.recall).sum::<f32>() / gt_n,
+            gt_metrics.iter().map(|m| m.f1_score).sum::<f32>() / gt_n,
+            gt_metrics.iter().map(|m| m.iou).sum::<f32>() / gt_n,
+        )
+    } else {
+        (0.0, 0.0, 0.0, 0.0)
+    };
 
     HyperResult {
         config,
@@ -282,10 +316,10 @@ fn run_hypertest(
         inlier_ratio: inlier_ratios.iter().sum::<f32>() / n,
         detected_blade_count: blade_counts.iter().sum::<u32>() as f32 / n,
         frames_processed: edge_counts.len(),
-        precision: 0.0,  // TODO: Compute from ground truth when available
-        recall: 0.0,     // TODO: Compute from ground truth when available
-        f1_score: 0.0,   // TODO: Compute from ground truth when available
-        iou: 0.0,        // TODO: Compute from ground truth when available
+        precision,
+        recall,
+        f1_score,
+        iou,
     }
 }
 

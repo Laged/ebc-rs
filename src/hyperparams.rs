@@ -179,15 +179,22 @@ impl HyperResult {
     }
 
     /// Score this result (lower is better). Used for selecting best config.
-    /// Primary: centroid_stability, Secondary: inlier_ratio (inverted)
+    ///
+    /// If ground truth metrics are available (f1_score > 0), use F1 as primary metric.
+    /// Otherwise fall back to centroid stability + inlier ratio.
     pub fn score(&self) -> f32 {
-        // Lower centroid_stability is better (stable)
-        // Higher inlier_ratio is better (good circle fit)
-        // Weight: 70% stability, 30% inlier
-        let stability_score = self.centroid_stability;
-        let inlier_penalty = 1.0 - self.inlier_ratio; // Invert so lower is better
-
-        0.7 * stability_score + 0.3 * inlier_penalty * 100.0
+        if self.f1_score > 0.0 {
+            // Ground truth available: prioritize F1 score (higher is better, invert for scoring)
+            // Score = 100 * (1 - F1), so higher F1 = lower score
+            100.0 * (1.0 - self.f1_score)
+        } else {
+            // No ground truth: use stability metrics
+            // Lower centroid_stability is better (stable)
+            // Higher inlier_ratio is better (good circle fit)
+            let stability_score = self.centroid_stability;
+            let inlier_penalty = 1.0 - self.inlier_ratio;
+            0.7 * stability_score + 0.3 * inlier_penalty * 100.0
+        }
     }
 }
 
