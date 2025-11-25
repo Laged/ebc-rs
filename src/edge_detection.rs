@@ -41,8 +41,10 @@ impl Plugin for EdgeDetectionPlugin {
             .init_resource::<CannyPipeline>()
             .init_resource::<LogPipeline>()
             .init_resource::<GpuEventBuffer>()
+            .init_resource::<EdgeReadbackBuffer>()
             .add_systems(ExtractSchedule, extract_edge_params)
             .add_systems(Render, prepare_events.in_set(RenderSystems::Prepare))
+            .add_systems(Render, prepare_readback.in_set(RenderSystems::Prepare))
             .add_systems(Render, queue_bind_group.in_set(RenderSystems::Queue))
             .add_systems(Render, prepare_sobel.in_set(RenderSystems::Queue))
             .add_systems(Render, prepare_canny.in_set(RenderSystems::Queue))
@@ -53,10 +55,12 @@ impl Plugin for EdgeDetectionPlugin {
         render_graph.add_node(SobelLabel, SobelNode::default());
         render_graph.add_node(CannyLabel, CannyNode::default());
         render_graph.add_node(LogLabel, LogNode::default());
-        // Render graph: Event → Sobel → Canny → LoG → Camera
+        render_graph.add_node(ReadbackLabel, ReadbackNode::default());
+        // Render graph: Event → Sobel → Canny → LoG → Readback → Camera
         render_graph.add_node_edge(EventLabel, SobelLabel);
         render_graph.add_node_edge(SobelLabel, CannyLabel);
         render_graph.add_node_edge(CannyLabel, LogLabel);
-        render_graph.add_node_edge(LogLabel, bevy::render::graph::CameraDriverLabel);
+        render_graph.add_node_edge(LogLabel, ReadbackLabel);
+        render_graph.add_node_edge(ReadbackLabel, bevy::render::graph::CameraDriverLabel);
     }
 }
