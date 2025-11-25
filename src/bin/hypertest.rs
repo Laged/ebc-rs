@@ -280,7 +280,13 @@ fn run_hypertest(
                         edge_data.width,
                         edge_data.height,
                     );
-                    let gt_result = GroundTruthMetrics::compute(&edge_data.pixels, &gt_mask);
+                    // Use 3px tolerance for distance-based matching
+                    let gt_result = GroundTruthMetrics::compute(
+                        &edge_data.pixels,
+                        &gt_mask,
+                        edge_data.width,
+                        3.0, // tolerance in pixels
+                    );
                     gt_metrics.push(gt_result);
                 }
             }
@@ -294,17 +300,23 @@ fn run_hypertest(
     }
 
     // Compute average ground truth metrics
-    let (precision, recall, f1_score, iou) = if !gt_metrics.is_empty() {
-        let gt_n = gt_metrics.len() as f32;
-        (
-            gt_metrics.iter().map(|m| m.precision).sum::<f32>() / gt_n,
-            gt_metrics.iter().map(|m| m.recall).sum::<f32>() / gt_n,
-            gt_metrics.iter().map(|m| m.f1_score).sum::<f32>() / gt_n,
-            gt_metrics.iter().map(|m| m.iou).sum::<f32>() / gt_n,
-        )
-    } else {
-        (0.0, 0.0, 0.0, 0.0)
-    };
+    let (precision, recall, f1_score, iou, tol_prec, tol_rec, tol_f1, avg_dist, med_dist) =
+        if !gt_metrics.is_empty() {
+            let gt_n = gt_metrics.len() as f32;
+            (
+                gt_metrics.iter().map(|m| m.precision).sum::<f32>() / gt_n,
+                gt_metrics.iter().map(|m| m.recall).sum::<f32>() / gt_n,
+                gt_metrics.iter().map(|m| m.f1_score).sum::<f32>() / gt_n,
+                gt_metrics.iter().map(|m| m.iou).sum::<f32>() / gt_n,
+                gt_metrics.iter().map(|m| m.tolerance_precision).sum::<f32>() / gt_n,
+                gt_metrics.iter().map(|m| m.tolerance_recall).sum::<f32>() / gt_n,
+                gt_metrics.iter().map(|m| m.tolerance_f1).sum::<f32>() / gt_n,
+                gt_metrics.iter().map(|m| m.avg_distance).sum::<f32>() / gt_n,
+                gt_metrics.iter().map(|m| m.median_distance).sum::<f32>() / gt_n,
+            )
+        } else {
+            (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        };
 
     HyperResult {
         config,
@@ -320,6 +332,11 @@ fn run_hypertest(
         recall,
         f1_score,
         iou,
+        tolerance_precision: tol_prec,
+        tolerance_recall: tol_rec,
+        tolerance_f1: tol_f1,
+        avg_distance: avg_dist,
+        median_distance: med_dist,
     }
 }
 

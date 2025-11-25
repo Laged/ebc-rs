@@ -152,10 +152,22 @@ pub struct HyperResult {
     pub inlier_ratio: f32,
     pub detected_blade_count: f32,
     pub frames_processed: usize,
+    // Exact match metrics
     pub precision: f32,
     pub recall: f32,
     pub f1_score: f32,
     pub iou: f32,
+    // Distance-tolerant metrics (3px tolerance)
+    #[serde(default)]
+    pub tolerance_precision: f32,
+    #[serde(default)]
+    pub tolerance_recall: f32,
+    #[serde(default)]
+    pub tolerance_f1: f32,
+    #[serde(default)]
+    pub avg_distance: f32,
+    #[serde(default)]
+    pub median_distance: f32,
 }
 
 impl HyperResult {
@@ -175,17 +187,25 @@ impl HyperResult {
             recall: 0.0,
             f1_score: 0.0,
             iou: 0.0,
+            tolerance_precision: 0.0,
+            tolerance_recall: 0.0,
+            tolerance_f1: 0.0,
+            avg_distance: f32::MAX,
+            median_distance: f32::MAX,
         }
     }
 
     /// Score this result (lower is better). Used for selecting best config.
     ///
-    /// If ground truth metrics are available (f1_score > 0), use F1 as primary metric.
+    /// If ground truth metrics are available, use tolerance_f1 as primary metric.
     /// Otherwise fall back to centroid stability + inlier ratio.
     pub fn score(&self) -> f32 {
-        if self.f1_score > 0.0 {
-            // Ground truth available: prioritize F1 score (higher is better, invert for scoring)
-            // Score = 100 * (1 - F1), so higher F1 = lower score
+        if self.tolerance_f1 > 0.0 {
+            // Ground truth available: prioritize tolerance-based F1 (higher is better, invert for scoring)
+            // Score = 100 * (1 - tolerance_F1), so higher F1 = lower score
+            100.0 * (1.0 - self.tolerance_f1)
+        } else if self.f1_score > 0.0 {
+            // Fall back to exact F1 if tolerance metrics not available
             100.0 * (1.0 - self.f1_score)
         } else {
             // No ground truth: use stability metrics
@@ -252,14 +272,17 @@ pub fn export_csv(results: &[HyperResult], path: &std::path::Path) -> std::io::R
         "detector,window_size,threshold,canny_low,canny_high,\
          filter_dead,filter_density,filter_temporal,filter_bidir,\
          avg_edges,density,centroid_stab,radius_stab,fit_error,\
-         inlier_ratio,blades,frames,precision,recall,f1_score,iou,score"
+         inlier_ratio,blades,frames,\
+         precision,recall,f1_score,iou,\
+         tol_precision,tol_recall,tol_f1,avg_dist,median_dist,score"
     )?;
 
     // Data rows
     for r in results {
         writeln!(
             file,
-            "{},{},{},{},{},{},{},{},{},{:.0},{:.4},{:.2},{:.2},{:.2},{:.2},{:.1},{},{:.4},{:.4},{:.4},{:.4},{:.2}",
+            "{},{},{},{},{},{},{},{},{},{:.0},{:.4},{:.2},{:.2},{:.2},{:.2},{:.1},{},\
+             {:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.4},{:.2},{:.2},{:.2}",
             r.config.detector,
             r.config.window_size_us,
             r.config.threshold,
@@ -281,6 +304,11 @@ pub fn export_csv(results: &[HyperResult], path: &std::path::Path) -> std::io::R
             r.recall,
             r.f1_score,
             r.iou,
+            r.tolerance_precision,
+            r.tolerance_recall,
+            r.tolerance_f1,
+            r.avg_distance,
+            r.median_distance,
             r.score()
         )?;
     }

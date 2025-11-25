@@ -154,11 +154,16 @@ fn main() {
                 best.config.filter_temporal);
             println!("  Avg edges:     {:.0}", best.avg_edge_count);
             println!("  Centroid std:  {:.2} px", best.centroid_stability);
-            if best.f1_score > 0.0 {
+            if best.tolerance_f1 > 0.0 {
+                println!("  --- Tolerance-based (3px) ---");
+                println!("  Precision:     {:.1}%", best.tolerance_precision * 100.0);
+                println!("  Recall:        {:.1}%", best.tolerance_recall * 100.0);
+                println!("  F1 Score:      {:.1}%", best.tolerance_f1 * 100.0);
+                println!("  Avg Distance:  {:.1} px", best.avg_distance);
+                println!("  --- Exact match ---");
                 println!("  Precision:     {:.1}%", best.precision * 100.0);
                 println!("  Recall:        {:.1}%", best.recall * 100.0);
                 println!("  F1 Score:      {:.1}%", best.f1_score * 100.0);
-                println!("  IoU:           {:.1}%", best.iou * 100.0);
             } else {
                 println!("  Inlier ratio:  {:.1}%", best.inlier_ratio * 100.0);
             }
@@ -182,11 +187,11 @@ fn main() {
         println!("Window size:    {:.0} us", best.config.window_size_us);
         println!("Threshold:      {:.0}", best.config.threshold);
         println!("Centroid std:   {:.2} px", best.centroid_stability);
-        if best.f1_score > 0.0 {
-            println!("Precision:      {:.1}%", best.precision * 100.0);
-            println!("Recall:         {:.1}%", best.recall * 100.0);
-            println!("F1 Score:       {:.1}%", best.f1_score * 100.0);
-            println!("IoU:            {:.1}%", best.iou * 100.0);
+        if best.tolerance_f1 > 0.0 {
+            println!("Tol. Precision: {:.1}%", best.tolerance_precision * 100.0);
+            println!("Tol. Recall:    {:.1}%", best.tolerance_recall * 100.0);
+            println!("Tol. F1 Score:  {:.1}%", best.tolerance_f1 * 100.0);
+            println!("Avg Distance:   {:.1} px", best.avg_distance);
         } else {
             println!("Inlier ratio:   {:.1}%", best.inlier_ratio * 100.0);
         }

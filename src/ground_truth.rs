@@ -154,6 +154,7 @@ impl GroundTruthConfig {
 /// Metrics for comparing detected edges against ground truth
 #[derive(Debug, Clone, Default)]
 pub struct GroundTruthMetrics {
+    // Exact match metrics
     pub true_positives: u32,
     pub false_positives: u32,
     pub false_negatives: u32,
@@ -161,17 +162,28 @@ pub struct GroundTruthMetrics {
     pub recall: f32,
     pub f1_score: f32,
     pub iou: f32,
+
+    // Distance-tolerant metrics
+    pub tolerance_precision: f32,  // % of detected edges within tolerance of ground truth
+    pub tolerance_recall: f32,     // % of ground truth edges within tolerance of detected
+    pub tolerance_f1: f32,         // F1 using tolerance-based matching
+    pub avg_distance: f32,         // Average distance from GT edge to nearest detected edge
+    pub median_distance: f32,      // Median distance from GT edge to nearest detected edge
 }
 
 impl GroundTruthMetrics {
     /// Compute metrics comparing detected edges to ground truth.
+    /// Uses both exact matching and distance-tolerant matching.
     ///
     /// # Arguments
     /// * `detected` - Detected edge values (> 0 means edge)
     /// * `ground_truth` - Ground truth edge mask (true = edge)
-    pub fn compute(detected: &[f32], ground_truth: &[bool]) -> Self {
+    /// * `width` - Image width for coordinate computation
+    /// * `tolerance` - Distance tolerance in pixels for "close enough" matching
+    pub fn compute(detected: &[f32], ground_truth: &[bool], width: u32, tolerance: f32) -> Self {
         assert_eq!(detected.len(), ground_truth.len(), "Size mismatch");
 
+        // Exact match metrics
         let mut tp = 0u32;
         let mut fp = 0u32;
         let mut fn_ = 0u32;
@@ -184,33 +196,139 @@ impl GroundTruthMetrics {
                 (true, true) => tp += 1,
                 (true, false) => fp += 1,
                 (false, true) => fn_ += 1,
-                (false, false) => {} // true negative, not counted
+                (false, false) => {}
             }
         }
 
-        let precision = if tp + fp > 0 {
-            tp as f32 / (tp + fp) as f32
-        } else {
-            0.0
-        };
-
-        let recall = if tp + fn_ > 0 {
-            tp as f32 / (tp + fn_) as f32
-        } else {
-            0.0
-        };
-
+        let precision = if tp + fp > 0 { tp as f32 / (tp + fp) as f32 } else { 0.0 };
+        let recall = if tp + fn_ > 0 { tp as f32 / (tp + fn_) as f32 } else { 0.0 };
         let f1_score = if precision + recall > 0.0 {
             2.0 * precision * recall / (precision + recall)
-        } else {
-            0.0
-        };
+        } else { 0.0 };
+        let iou = if tp + fp + fn_ > 0 { tp as f32 / (tp + fp + fn_) as f32 } else { 0.0 };
 
-        let iou = if tp + fp + fn_ > 0 {
-            tp as f32 / (tp + fp + fn_) as f32
-        } else {
-            0.0
-        };
+        // Extract pixel coordinates
+        let height = detected.len() as u32 / width;
+        let mut detected_pixels: Vec<(i32, i32)> = Vec::new();
+        let mut gt_pixels: Vec<(i32, i32)> = Vec::new();
+
+        for (i, (&d, &g)) in detected.iter().zip(ground_truth.iter()).enumerate() {
+            let x = (i as u32 % width) as i32;
+            let y = (i as u32 / width) as i32;
+            if d > 0.0 {
+                detected_pixels.push((x, y));
+            }
+            if g {
+                gt_pixels.push((x, y));
+            }
+        }
+
+        // Distance-tolerant metrics
+        let tolerance_sq = tolerance * tolerance;
+
+        // Build a simple spatial grid for faster lookup (divide into cells)
+        let cell_size = (tolerance * 2.0).max(10.0) as i32;
+
+        // Index detected pixels into grid
+        let mut detected_grid: std::collections::HashMap<(i32, i32), Vec<(i32, i32)>> =
+            std::collections::HashMap::new();
+        for &(x, y) in &detected_pixels {
+            let cell = (x / cell_size, y / cell_size);
+            detected_grid.entry(cell).or_default().push((x, y));
+        }
+
+        // For each GT pixel, find distance to nearest detected pixel
+        let mut distances: Vec<f32> = Vec::with_capacity(gt_pixels.len());
+        let mut gt_within_tolerance = 0u32;
+
+        for &(gx, gy) in &gt_pixels {
+            let cell_x = gx / cell_size;
+            let cell_y = gy / cell_size;
+
+            let mut min_dist_sq = f32::MAX;
+
+            // Check neighboring cells
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    let check_cell = (cell_x + dx, cell_y + dy);
+                    if let Some(pixels) = detected_grid.get(&check_cell) {
+                        for &(px, py) in pixels {
+                            let dist_sq = ((px - gx) * (px - gx) + (py - gy) * (py - gy)) as f32;
+                            min_dist_sq = min_dist_sq.min(dist_sq);
+                        }
+                    }
+                }
+            }
+
+            // Only record distance if we found at least one detected pixel
+            if min_dist_sq < f32::MAX {
+                let dist = min_dist_sq.sqrt();
+                distances.push(dist);
+
+                if min_dist_sq <= tolerance_sq {
+                    gt_within_tolerance += 1;
+                }
+            }
+        }
+
+        // Index GT pixels into grid for detected->GT lookup
+        let mut gt_grid: std::collections::HashMap<(i32, i32), Vec<(i32, i32)>> =
+            std::collections::HashMap::new();
+        for &(x, y) in &gt_pixels {
+            let cell = (x / cell_size, y / cell_size);
+            gt_grid.entry(cell).or_default().push((x, y));
+        }
+
+        // For each detected pixel, check if within tolerance of any GT pixel
+        let mut detected_within_tolerance = 0u32;
+
+        for &(dx, dy) in &detected_pixels {
+            let cell_x = dx / cell_size;
+            let cell_y = dy / cell_size;
+
+            let mut found = false;
+            'outer: for dcx in -1..=1 {
+                for dcy in -1..=1 {
+                    let check_cell = (cell_x + dcx, cell_y + dcy);
+                    if let Some(pixels) = gt_grid.get(&check_cell) {
+                        for &(gx, gy) in pixels {
+                            let dist_sq = ((dx - gx) * (dx - gx) + (dy - gy) * (dy - gy)) as f32;
+                            if dist_sq <= tolerance_sq {
+                                found = true;
+                                break 'outer;
+                            }
+                        }
+                    }
+                }
+            }
+            if found {
+                detected_within_tolerance += 1;
+            }
+        }
+
+        // Compute tolerance-based precision/recall
+        let tolerance_precision = if !detected_pixels.is_empty() {
+            detected_within_tolerance as f32 / detected_pixels.len() as f32
+        } else { 0.0 };
+
+        let tolerance_recall = if !gt_pixels.is_empty() {
+            gt_within_tolerance as f32 / gt_pixels.len() as f32
+        } else { 0.0 };
+
+        let tolerance_f1 = if tolerance_precision + tolerance_recall > 0.0 {
+            2.0 * tolerance_precision * tolerance_recall / (tolerance_precision + tolerance_recall)
+        } else { 0.0 };
+
+        // Compute distance statistics
+        let avg_distance = if !distances.is_empty() {
+            distances.iter().sum::<f32>() / distances.len() as f32
+        } else { 0.0 };
+
+        let median_distance = if !distances.is_empty() {
+            let mut sorted = distances.clone();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            sorted[sorted.len() / 2]
+        } else { 0.0 };
 
         Self {
             true_positives: tp,
@@ -220,6 +338,11 @@ impl GroundTruthMetrics {
             recall,
             f1_score,
             iou,
+            tolerance_precision,
+            tolerance_recall,
+            tolerance_f1,
+            avg_distance,
+            median_distance,
         }
     }
 }
