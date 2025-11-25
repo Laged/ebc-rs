@@ -330,6 +330,7 @@ fn ui_system(
         ui.checkbox(&mut edge_params.show_sobel, "Show Sobel (Yellow)");
         ui.checkbox(&mut edge_params.show_canny, "Show Canny (Cyan)");
         ui.checkbox(&mut edge_params.show_log, "Show LoG (Magenta)");
+        ui.checkbox(&mut edge_params.show_ground_truth, "Show Ground Truth (Green)");
 
         ui.separator();
         ui.label("Sobel Threshold:");
