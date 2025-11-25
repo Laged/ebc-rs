@@ -28,6 +28,6 @@ pub use preprocess::{
     PreprocessLabel, PreprocessNode, PreprocessPipeline, PreprocessBindGroup,
     prepare_preprocess,
 };
-pub use resources::{ActiveDetector, CannyImage, EdgeParams, EdgeReadbackBuffer, EventData, FilteredSurfaceImage, GpuEventBuffer, LogImage, SobelImage, SurfaceImage};
+pub use resources::{ActiveDetector, CannyImage, EdgeParams, EdgeReadbackBuffer, EventData, FilteredSurfaceImage, GpuEventBuffer, GroundTruthImage, LogImage, SobelImage, SurfaceImage};
 pub use types::{GpuParams, GpuEdgeParams, GpuEvent};
 pub use readback::{ReadbackLabel, ReadbackNode, prepare_readback, read_readback_result};

@@ -39,6 +39,12 @@ pub struct LogImage {
     pub handle: Handle<Image>,
 }
 
+// Handle to ground truth texture (validation output)
+#[derive(Resource, ExtractResource, Clone, Default)]
+pub struct GroundTruthImage {
+    pub handle: Handle<Image>,
+}
+
 // Render world GPU buffers
 #[derive(Resource, Default)]
 pub struct GpuEventBuffer {
