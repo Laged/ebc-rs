@@ -1,12 +1,13 @@
 //! Ground truth configuration for synthetic fan data validation.
 
 use bevy::prelude::*;
+use bevy::render::extract_resource::ExtractResource;
 use serde::Deserialize;
 use std::f32::consts::PI;
 use std::path::Path;
 
 /// Ground truth fan parameters loaded from JSON sidecar file.
-#[derive(Resource, Deserialize, Debug, Clone, Default)]
+#[derive(Resource, ExtractResource, Deserialize, Debug, Clone, Default)]
 pub struct GroundTruthConfig {
     /// Whether ground truth rendering is enabled
     #[serde(default)]

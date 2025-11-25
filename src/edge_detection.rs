@@ -3,6 +3,12 @@ use bevy::render::extract_resource::ExtractResourcePlugin;
 use bevy::render::{RenderApp, Render, RenderSystems, ExtractSchedule, Extract};
 use bevy::render::render_graph::RenderGraph;
 use crate::gpu::*;
+use crate::gpu::{
+    GroundTruthBindGroup, GroundTruthLabel, GroundTruthNode, GroundTruthPipeline,
+    prepare_ground_truth,
+};
+use crate::gpu::GroundTruthImage;
+use crate::ground_truth::GroundTruthConfig;
 use crate::event_renderer::EventRendererPlugin;
 
 pub struct EdgeDetectionPlugin;
@@ -14,14 +20,18 @@ impl Plugin for EdgeDetectionPlugin {
             .init_resource::<SobelImage>()
             .init_resource::<CannyImage>()
             .init_resource::<LogImage>()
+            .init_resource::<GroundTruthImage>()
             .init_resource::<crate::playback::PlaybackState>()
             .init_resource::<EdgeParams>()
+            .init_resource::<GroundTruthConfig>()
             .add_plugins(ExtractResourcePlugin::<EventData>::default())
             .add_plugins(ExtractResourcePlugin::<SurfaceImage>::default())
             .add_plugins(ExtractResourcePlugin::<FilteredSurfaceImage>::default())
             .add_plugins(ExtractResourcePlugin::<SobelImage>::default())
             .add_plugins(ExtractResourcePlugin::<CannyImage>::default())
             .add_plugins(ExtractResourcePlugin::<LogImage>::default())
+            .add_plugins(ExtractResourcePlugin::<GroundTruthConfig>::default())
+            .add_plugins(ExtractResourcePlugin::<GroundTruthImage>::default())
             .add_plugins(ExtractResourcePlugin::<crate::playback::PlaybackState>::default())
             .add_plugins(EventRendererPlugin)
             .add_plugins(crate::analysis::AnalysisPlugin);
@@ -50,11 +60,14 @@ impl Plugin for EdgeDetectionPlugin {
             .init_resource::<SobelPipeline>()
             .init_resource::<CannyPipeline>()
             .init_resource::<LogPipeline>()
+            .init_resource::<GroundTruthPipeline>()
+            .init_resource::<GroundTruthBindGroup>()
             .init_resource::<GpuEventBuffer>()
             .init_resource::<EdgeReadbackBuffer>()
             .add_systems(ExtractSchedule, extract_edge_params)
             .add_systems(Render, prepare_events.in_set(RenderSystems::Prepare))
             .add_systems(Render, prepare_readback.in_set(RenderSystems::Prepare))
+            .add_systems(Render, prepare_ground_truth.in_set(RenderSystems::Prepare))
             .add_systems(Render, queue_bind_group.in_set(RenderSystems::Queue))
             .add_systems(Render, prepare_preprocess.in_set(RenderSystems::Queue))
             .add_systems(Render, prepare_sobel.in_set(RenderSystems::Queue))
@@ -68,10 +81,13 @@ impl Plugin for EdgeDetectionPlugin {
         render_graph.add_node(SobelLabel, SobelNode::default());
         render_graph.add_node(CannyLabel, CannyNode::default());
         render_graph.add_node(LogLabel, LogNode::default());
+        render_graph.add_node(GroundTruthLabel, GroundTruthNode);
         render_graph.add_node(ReadbackLabel, ReadbackNode::default());
         // Render graph: Event → Preprocess → Sobel → Canny → LoG → Readback → Camera
+        //               Preprocess → GroundTruth (parallel to edge detectors)
         render_graph.add_node_edge(EventLabel, PreprocessLabel);
         render_graph.add_node_edge(PreprocessLabel, SobelLabel);
+        render_graph.add_node_edge(PreprocessLabel, GroundTruthLabel);
         render_graph.add_node_edge(SobelLabel, CannyLabel);
         render_graph.add_node_edge(CannyLabel, LogLabel);
         render_graph.add_node_edge(LogLabel, ReadbackLabel);
