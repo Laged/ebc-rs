@@ -1,4 +1,4 @@
-use crate::gpu::{EventData, SurfaceImage, FilteredSurfaceImage, SobelImage, CannyImage, LogImage, EdgeParams};
+use crate::gpu::{EventData, SurfaceImage, FilteredSurfaceImage, SobelImage, CannyImage, LogImage, GroundTruthImage, EdgeParams};
 use crate::playback::PlaybackState;
 use crate::loader::DatLoader;
 use crate::EventFilePath;
@@ -102,6 +102,7 @@ fn setup_scene(
     mut sobel_image_res: ResMut<SobelImage>,
     mut canny_image_res: ResMut<CannyImage>,
     mut log_image_res: ResMut<LogImage>,
+    mut ground_truth_image_res: ResMut<GroundTruthImage>,
 ) {
     // Camera
     commands.spawn((
@@ -180,6 +181,24 @@ fn setup_scene(
         TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC;
     let log_handle = images.add(log_image);
     log_image_res.handle = log_handle.clone();
+
+    // Create ground truth texture (RGBA8 for R=edge, G=interior)
+    let mut ground_truth_image = Image::new_fill(
+        Extent3d {
+            width: 1280,
+            height: 720,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[0, 0, 0, 255],
+        TextureFormat::Rgba8Unorm,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    ground_truth_image.texture_descriptor.usage = TextureUsages::STORAGE_BINDING
+        | TextureUsages::TEXTURE_BINDING
+        | TextureUsages::COPY_SRC;
+    let ground_truth_handle = images.add(ground_truth_image);
+    ground_truth_image_res.handle = ground_truth_handle.clone();
 
     // Material
     let material_handle = materials.add(EventMaterial {
