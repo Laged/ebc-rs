@@ -212,3 +212,40 @@ pub fn fit_circle_ransac(
 
     Some((best_center, best_radius, fit_error, inlier_ratio))
 }
+
+/// Build histogram of edge pixel angles relative to center
+pub fn angular_histogram(edge_pixels: &[Vec2], center: Vec2, num_bins: usize) -> Vec<u32> {
+    let mut histogram = vec![0u32; num_bins];
+
+    for p in edge_pixels {
+        let dx = p.x - center.x;
+        let dy = p.y - center.y;
+        let angle = dy.atan2(dx); // -PI to PI
+        let normalized = (angle + std::f32::consts::PI) / std::f32::consts::TAU; // 0 to 1
+        let bin = ((normalized * num_bins as f32) as usize).min(num_bins - 1);
+        histogram[bin] += 1;
+    }
+
+    histogram
+}
+
+/// Find peaks in angular histogram (blade positions)
+pub fn find_angular_peaks(histogram: &[u32], min_prominence: u32) -> Vec<f32> {
+    let num_bins = histogram.len();
+    let bin_size = std::f32::consts::TAU / num_bins as f32;
+    let mut peaks = Vec::new();
+
+    for i in 0..num_bins {
+        let prev = histogram[(i + num_bins - 1) % num_bins];
+        let curr = histogram[i];
+        let next = histogram[(i + 1) % num_bins];
+
+        // Local maximum with sufficient prominence
+        if curr > prev && curr > next && curr >= min_prominence {
+            let angle = (i as f32 + 0.5) * bin_size - std::f32::consts::PI;
+            peaks.push(angle);
+        }
+    }
+
+    peaks
+}
