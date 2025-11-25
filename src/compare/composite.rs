@@ -34,12 +34,12 @@ impl FromWorld for CompositePipeline {
         let bind_group_layout = render_device.create_bind_group_layout(
             "composite_bind_group_layout",
             &[
-                // Raw/filtered surface (input)
+                // Raw/filtered surface (input) - R32Uint
                 BindGroupLayoutEntry {
                     binding: 0,
                     visibility: ShaderStages::COMPUTE,
                     ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Float { filterable: false },
+                        sample_type: TextureSampleType::Uint,
                         view_dimension: TextureViewDimension::D2,
                         multisampled: false,
                     },

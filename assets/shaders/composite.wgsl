@@ -1,7 +1,10 @@
 // Composite shader: combines 4 detector outputs into 2x2 grid
 // Output: 2560x1440 (2x base resolution of 1280x720)
 
-@group(0) @binding(0) var raw_texture: texture_2d<f32>;
+// Input textures have different formats:
+// - raw_texture: R32Uint (event counts)
+// - sobel/canny/log: R32Float (edge magnitudes)
+@group(0) @binding(0) var raw_texture: texture_2d<u32>;
 @group(0) @binding(1) var sobel_texture: texture_2d<f32>;
 @group(0) @binding(2) var canny_texture: texture_2d<f32>;
 @group(0) @binding(3) var log_texture: texture_2d<f32>;
@@ -37,29 +40,30 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let source_y = output_y % BASE_HEIGHT;
     let source_coords = vec2<i32>(i32(source_x), i32(source_y));
 
-    var value: f32 = 0.0;
+    var intensity: f32 = 0.0;
     var color: vec3<f32>;
 
     if (!is_right && !is_bottom) {
-        // Top-left: Raw events
-        value = textureLoad(raw_texture, source_coords, 0).r;
+        // Top-left: Raw events (u32 -> normalize)
+        let raw_value = textureLoad(raw_texture, source_coords, 0).r;
+        intensity = clamp(f32(raw_value) / 10.0, 0.0, 1.0);
         color = RAW_COLOR;
     } else if (is_right && !is_bottom) {
         // Top-right: Sobel
-        value = textureLoad(sobel_texture, source_coords, 0).r;
+        let value = textureLoad(sobel_texture, source_coords, 0).r;
+        intensity = clamp(value / 500.0, 0.0, 1.0);
         color = SOBEL_COLOR;
     } else if (!is_right && is_bottom) {
         // Bottom-left: Canny
-        value = textureLoad(canny_texture, source_coords, 0).r;
+        let value = textureLoad(canny_texture, source_coords, 0).r;
+        intensity = clamp(value / 500.0, 0.0, 1.0);
         color = CANNY_COLOR;
     } else {
         // Bottom-right: LoG
-        value = textureLoad(log_texture, source_coords, 0).r;
+        let value = textureLoad(log_texture, source_coords, 0).r;
+        intensity = clamp(value / 500.0, 0.0, 1.0);
         color = LOG_COLOR;
     }
-
-    // Normalize value for display (edge magnitude -> intensity)
-    let intensity = clamp(value / 1000.0, 0.0, 1.0);
 
     // Draw border between quadrants (2px wide)
     let border_x = output_x == BASE_WIDTH - 1u || output_x == BASE_WIDTH;
