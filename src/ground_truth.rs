@@ -85,10 +85,3 @@ impl GroundTruthConfig {
     }
 }
 
-/// JSON structure for the sidecar file
-#[derive(Deserialize)]
-struct GroundTruthJson {
-    params: GroundTruthConfig,
-    #[allow(dead_code)]
-    frames: Vec<serde_json::Value>,
-}

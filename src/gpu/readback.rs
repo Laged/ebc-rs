@@ -90,8 +90,11 @@ impl Node for ReadbackNode {
         );
 
         // Also copy ground truth texture if available (for metric computation)
+        // Use get_resource to gracefully handle binaries that don't initialize GroundTruthImage
         if let Some(gt_staging) = &readback.ground_truth_staging {
-            let gt_image = world.resource::<GroundTruthImage>();
+            let Some(gt_image) = world.get_resource::<GroundTruthImage>() else {
+                return Ok(());
+            };
             if let Some(gt_gpu) = gpu_images.get(&gt_image.handle) {
                 // Ground truth is RGBA8, so 4 bytes per pixel
                 let gt_bytes_per_row = readback.dimensions.x * 4;
