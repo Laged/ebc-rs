@@ -216,6 +216,7 @@ fn ui_system(
     mut edge_params: ResMut<EdgeParams>,
     diagnostics: Res<bevy::diagnostic::DiagnosticsStore>,
     keyboard: Res<ButtonInput<KeyCode>>,
+    edge_data: Option<Res<crate::analysis::EdgeData>>,
 ) {
     // Handle keyboard input for filter toggles (1/2/3/4)
     if keyboard.just_pressed(KeyCode::Digit1) {
@@ -324,6 +325,25 @@ fn ui_system(
         ui.label("Layer 2: Cyan Canny edges");
         ui.label("Layer 3: Magenta LoG edges");
     });
+
+    // Edge Metrics window
+    if let Some(edge_data) = edge_data {
+        egui::Window::new("Edge Metrics").show(ctx, |ui| {
+            let total_pixels = edge_data.pixels.len();
+            let edge_pixels = edge_data.pixels.iter().filter(|&&v| v > 0.0).count();
+            let density = if total_pixels > 0 {
+                edge_pixels as f32 / total_pixels as f32
+            } else {
+                0.0
+            };
+
+            ui.label(format!("Detector: {}", edge_data.detector));
+            ui.label(format!("Dimensions: {}x{}", edge_data.width, edge_data.height));
+            ui.label(format!("Edge pixels: {} / {}", edge_pixels, total_pixels));
+            ui.label(format!("Edge density: {:.4}", density));
+            ui.label(format!("Updated: {}", edge_data.updated));
+        });
+    }
 }
 
 pub struct EventRendererPlugin;

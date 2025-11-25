@@ -21,7 +21,8 @@ impl Plugin for EdgeDetectionPlugin {
             .add_plugins(ExtractResourcePlugin::<CannyImage>::default())
             .add_plugins(ExtractResourcePlugin::<LogImage>::default())
             .add_plugins(ExtractResourcePlugin::<crate::playback::PlaybackState>::default())
-            .add_plugins(EventRendererPlugin);
+            .add_plugins(EventRendererPlugin)
+            .add_plugins(crate::analysis::AnalysisPlugin);
     }
 
     fn finish(&self, app: &mut App) {
