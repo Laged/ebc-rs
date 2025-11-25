@@ -4,6 +4,7 @@ pub mod log;
 pub mod sobel;
 pub mod resources;
 pub mod types;
+pub mod readback;
 
 // Re-export commonly used items
 pub use accumulation::{
@@ -24,3 +25,4 @@ pub use sobel::{
 };
 pub use resources::{ActiveDetector, CannyImage, EdgeParams, EdgeReadbackBuffer, EventData, GpuEventBuffer, LogImage, SobelImage, SurfaceImage};
 pub use types::{GpuEdgeParams, GpuEvent};
+pub use readback::{ReadbackLabel, ReadbackNode};
