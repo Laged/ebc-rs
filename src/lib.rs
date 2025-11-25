@@ -5,6 +5,7 @@ pub mod event_renderer;
 pub mod gpu;
 pub mod loader;
 pub mod playback;
+pub mod synthesis;
 
 #[derive(Resource, Clone)]
 pub struct EventFilePath(pub String);
