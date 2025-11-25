@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy::render::extract_resource::ExtractResource;
-use bevy::render::render_resource::Buffer;
+use bevy::render::render_resource::{Buffer, BufferAsyncError};
 use super::types::GpuEvent;
 
 // Main world event storage
@@ -67,6 +67,10 @@ pub struct EdgeReadbackBuffer {
     pub ready: bool,
     /// Which detector to read back (to avoid reading all three every frame)
     pub active_detector: ActiveDetector,
+    /// Channel receiver for async map completion
+    pub map_receiver: Option<std::sync::Mutex<std::sync::mpsc::Receiver<Result<(), BufferAsyncError>>>>,
+    /// Whether a map operation is in flight
+    pub mapping_in_progress: bool,
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]

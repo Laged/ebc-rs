@@ -48,7 +48,8 @@ impl Plugin for EdgeDetectionPlugin {
             .add_systems(Render, queue_bind_group.in_set(RenderSystems::Queue))
             .add_systems(Render, prepare_sobel.in_set(RenderSystems::Queue))
             .add_systems(Render, prepare_canny.in_set(RenderSystems::Queue))
-            .add_systems(Render, prepare_log.in_set(RenderSystems::Queue));
+            .add_systems(Render, prepare_log.in_set(RenderSystems::Queue))
+            .add_systems(Render, read_readback_result.in_set(RenderSystems::Cleanup));
 
         let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
         render_graph.add_node(EventLabel, EventAccumulationNode::default());

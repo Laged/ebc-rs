@@ -142,3 +142,102 @@ pub fn prepare_readback(
         info!("Created readback buffers: {}x{} ({} pixels)", width, height, pixel_count);
     }
 }
+
+/// System to map staging buffer and copy data to CPU vectors
+/// Runs in RenderSystems::Cleanup after all GPU work is submitted
+pub fn read_readback_result(readback: ResMut<EdgeReadbackBuffer>) {
+    let readback = readback.into_inner();
+
+    // Get the active staging buffer
+    let staging = match readback.active_detector {
+        ActiveDetector::Sobel => &readback.sobel_staging,
+        ActiveDetector::Canny => &readback.canny_staging,
+        ActiveDetector::Log => &readback.log_staging,
+    };
+    let Some(staging_buffer) = staging else {
+        return;
+    };
+
+    // Check if we have a pending map operation
+    if let Some(receiver_mutex) = readback.map_receiver.take() {
+        // Try to lock and check the result, determining what action to take
+        enum Action {
+            ProcessData,
+            MapError,
+            StillWaiting,
+            Disconnected,
+            CouldntLock,
+        }
+
+        let action = {
+            let lock_result = receiver_mutex.try_lock();
+            match lock_result {
+                Ok(receiver) => {
+                    match receiver.try_recv() {
+                        Ok(Ok(())) => Action::ProcessData,
+                        Ok(Err(_)) => Action::MapError,
+                        Err(std::sync::mpsc::TryRecvError::Empty) => Action::StillWaiting,
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => Action::Disconnected,
+                    }
+                }
+                Err(_) => Action::CouldntLock,
+            }
+        }; // lock_result is dropped here
+
+        match action {
+            Action::ProcessData => {
+                // Map succeeded - read the data
+                let slice = staging_buffer.slice(..);
+                {
+                    let data = slice.get_mapped_range();
+
+                    // Copy to appropriate vector, handling row padding
+                    let width = readback.dimensions.x as usize;
+                    let height = readback.dimensions.y as usize;
+                    let bytes_per_row = width * 4;
+                    let padded_bytes_per_row = (bytes_per_row + 255) & !255;
+
+                    let target = match readback.active_detector {
+                        ActiveDetector::Sobel => &mut readback.sobel_data,
+                        ActiveDetector::Canny => &mut readback.canny_data,
+                        ActiveDetector::Log => &mut readback.log_data,
+                    };
+
+                    // Copy row by row to handle padding
+                    for y in 0..height {
+                        let src_offset = y * padded_bytes_per_row;
+                        let dst_offset = y * width;
+                        let row_bytes = &data[src_offset..src_offset + bytes_per_row];
+                        let row_floats: &[f32] = bytemuck::cast_slice(row_bytes);
+                        target[dst_offset..dst_offset + width].copy_from_slice(row_floats);
+                    }
+                }
+                staging_buffer.unmap();
+                readback.mapping_in_progress = false;
+                readback.ready = true;
+            }
+            Action::MapError => {
+                error!("Buffer map failed");
+                readback.mapping_in_progress = false;
+            }
+            Action::StillWaiting | Action::CouldntLock => {
+                // Put receiver back
+                readback.map_receiver = Some(receiver_mutex);
+            }
+            Action::Disconnected => {
+                error!("Buffer map channel disconnected");
+                readback.mapping_in_progress = false;
+            }
+        }
+    } else if !readback.mapping_in_progress && readback.dimensions.x > 0 {
+        // Start a new map operation
+        let slice = staging_buffer.slice(..);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        slice.map_async(MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        readback.map_receiver = Some(std::sync::Mutex::new(receiver));
+        readback.mapping_in_progress = true;
+        readback.ready = false;
+    }
+}
