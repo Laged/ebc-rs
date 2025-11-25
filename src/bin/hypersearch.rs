@@ -12,9 +12,10 @@
 
 use clap::Parser;
 use rayon::prelude::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use ebc_rs::compare::CompareConfig;
 use ebc_rs::hyperparams::{export_csv, generate_grid_configs, select_best, HyperConfig, HyperResult};
 
 #[derive(Parser, Debug)]
@@ -196,6 +197,52 @@ fn main() {
             println!("Inlier ratio:   {:.1}%", best.inlier_ratio * 100.0);
         }
         println!("Score:          {:.2}", best.score());
+    }
+
+    // Export combined TOML config for compare_live
+    export_toml_config(&results, &detectors, &args.output);
+}
+
+/// Export combined TOML configuration for compare_live
+fn export_toml_config(results: &[HyperResult], detectors: &[String], _output_path: &Path) {
+    let mut config = CompareConfig::default();
+
+    // Find best for each detector and populate config
+    for detector in detectors {
+        let detector_results: Vec<HyperResult> = results
+            .iter()
+            .filter(|r| r.config.detector == *detector)
+            .cloned()
+            .collect();
+
+        if let Some(best) = select_best(&detector_results) {
+            match detector.as_str() {
+                "sobel" => {
+                    config.sobel.threshold = best.config.threshold;
+                    config.sobel.window_size_us = best.config.window_size_us;
+                    config.sobel.filter_dead_pixels = best.config.filter_dead_pixels;
+                }
+                "canny" => {
+                    config.canny.low_threshold = best.config.canny_low;
+                    config.canny.high_threshold = best.config.canny_high;
+                    config.canny.window_size_us = best.config.window_size_us;
+                    config.canny.filter_dead_pixels = best.config.filter_dead_pixels;
+                }
+                "log" => {
+                    config.log.threshold = best.config.threshold;
+                    config.log.window_size_us = best.config.window_size_us;
+                    config.log.filter_dead_pixels = best.config.filter_dead_pixels;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Save to config/detectors.toml
+    let toml_path = Path::new("config/detectors.toml");
+    match config.save(toml_path) {
+        Ok(()) => println!("\n=== TOML Config Exported ===\nSaved to: {}", toml_path.display()),
+        Err(e) => eprintln!("\nWarning: Failed to save TOML config: {}", e),
     }
 }
 
