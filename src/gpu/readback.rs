@@ -36,6 +36,12 @@ impl Node for ReadbackNode {
             return Ok(());
         }
 
+        // Skip copy if buffer is currently being mapped (from previous frame)
+        // wgpu doesn't allow writing to a buffer with pending map operation
+        if readback.mapping_in_progress {
+            return Ok(());
+        }
+
         let gpu_images = world.resource::<RenderAssets<GpuImage>>();
 
         // Get the active detector's texture and staging buffer
