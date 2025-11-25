@@ -138,7 +138,7 @@ fn setup_scene(
         RenderAssetUsages::RENDER_WORLD,
     );
     sobel_image.texture_descriptor.usage =
-        TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
+        TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC;
     let sobel_handle = images.add(sobel_image);
     sobel_image_res.handle = sobel_handle.clone();
 
@@ -151,7 +151,7 @@ fn setup_scene(
         RenderAssetUsages::RENDER_WORLD,
     );
     canny_image.texture_descriptor.usage =
-        TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
+        TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC;
     let canny_handle = images.add(canny_image);
     canny_image_res.handle = canny_handle.clone();
 
@@ -164,7 +164,7 @@ fn setup_scene(
         RenderAssetUsages::RENDER_WORLD,
     );
     log_image.texture_descriptor.usage =
-        TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING;
+        TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC;
     let log_handle = images.add(log_image);
     log_image_res.handle = log_handle.clone();
 
