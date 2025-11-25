@@ -33,7 +33,12 @@ impl Plugin for EdgeDetectionPlugin {
             commands.insert_resource(edge_params.clone());
         }
 
+        // Setup edge data channel
+        let (edge_sender, edge_receiver) = std::sync::mpsc::channel();
+        app.insert_resource(crate::analysis::EdgeDataReceiver(std::sync::Mutex::new(edge_receiver)));
+
         let render_app = app.sub_app_mut(RenderApp);
+        render_app.insert_resource(crate::analysis::EdgeDataSender(edge_sender));
 
         render_app
             .init_resource::<EventComputePipeline>()

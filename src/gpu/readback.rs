@@ -145,7 +145,10 @@ pub fn prepare_readback(
 
 /// System to map staging buffer and copy data to CPU vectors
 /// Runs in RenderSystems::Cleanup after all GPU work is submitted
-pub fn read_readback_result(readback: ResMut<EdgeReadbackBuffer>) {
+pub fn read_readback_result(
+    readback: ResMut<EdgeReadbackBuffer>,
+    sender: Option<Res<crate::analysis::EdgeDataSender>>,
+) {
     let readback = readback.into_inner();
 
     // Get the active staging buffer
@@ -215,6 +218,22 @@ pub fn read_readback_result(readback: ResMut<EdgeReadbackBuffer>) {
                 staging_buffer.unmap();
                 readback.mapping_in_progress = false;
                 readback.ready = true;
+
+                // Send data to main world via channel
+                if let Some(sender) = &sender {
+                    let (detector_name, pixels) = match readback.active_detector {
+                        ActiveDetector::Sobel => ("sobel", readback.sobel_data.clone()),
+                        ActiveDetector::Canny => ("canny", readback.canny_data.clone()),
+                        ActiveDetector::Log => ("log", readback.log_data.clone()),
+                    };
+                    let _ = sender.0.send(crate::analysis::EdgeData {
+                        pixels,
+                        width: readback.dimensions.x,
+                        height: readback.dimensions.y,
+                        detector: detector_name.to_string(),
+                        updated: true,
+                    });
+                }
             }
             Action::MapError => {
                 error!("Buffer map failed");

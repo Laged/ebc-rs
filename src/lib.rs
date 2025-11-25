@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+pub mod analysis;
 pub mod edge_detection;
 pub mod event_renderer;
 pub mod gpu;
@@ -16,4 +17,5 @@ impl Default for EventFilePath {
     }
 }
 
+pub use analysis::{AnalysisPlugin, EdgeData};
 pub use loader::DatLoader;
