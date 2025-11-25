@@ -1,6 +1,7 @@
 //! GPU composite pipeline for 2x2 grid rendering.
 
 use bevy::prelude::*;
+use bevy::render::extract_resource::ExtractResource;
 use bevy::render::render_asset::RenderAssets;
 use bevy::render::render_graph::{Node, NodeRunError, RenderGraphContext, RenderLabel};
 use bevy::render::render_resource::*;
@@ -10,7 +11,7 @@ use bevy::render::texture::GpuImage;
 use crate::gpu::{FilteredSurfaceImage, SobelImage, CannyImage, LogImage};
 
 /// Output composite image (2560x1440)
-#[derive(Resource, Clone, Default)]
+#[derive(Resource, ExtractResource, Clone, Default)]
 pub struct CompositeImage {
     pub handle: Handle<Image>,
 }

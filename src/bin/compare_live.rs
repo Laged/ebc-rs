@@ -17,7 +17,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 use ebc_rs::compare::{
-    CompareConfig, CompareUiPlugin, CompositeImage, DataFileState,
+    CompareConfig, CompareUiPlugin, CompositeImage, CompositeRenderPlugin, DataFileState,
 };
 use ebc_rs::edge_detection::EdgeDetectionPlugin;
 use ebc_rs::EventFilePath;
@@ -84,6 +84,7 @@ fn main() {
         }))
         .add_plugins(EguiPlugin::default())
         .add_plugins(EdgeDetectionPlugin)
+        .add_plugins(CompositeRenderPlugin)
         .add_plugins(CompareUiPlugin)
         .insert_resource(EventFilePath(first_file.to_string_lossy().to_string()))
         .insert_resource(DataFileState {
