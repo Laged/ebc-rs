@@ -27,14 +27,15 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // Load 3x3 neighborhood and extract timestamps
+    // Surface texture packs: (timestamp << 1) | polarity
     var timestamps: array<f32, 9>;
     var idx = 0u;
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
             let pos = coords + vec2<i32>(dx, dy);
             let packed = textureLoad(surface_texture, pos, 0).r;
-            // Extract timestamp (ignore polarity bit)
-            timestamps[idx] = f32(packed & 0x7FFFFFFFu);
+            // Extract timestamp by shifting right (polarity is in bit 0)
+            timestamps[idx] = f32(packed >> 1u);
             idx++;
         }
     }

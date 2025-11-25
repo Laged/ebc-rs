@@ -36,6 +36,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     // Apply LoG kernel to detect edges
     // LoG detects regions of rapid intensity change (second derivative)
+    // Surface texture packs: (timestamp << 1) | polarity
     var log_response = 0.0;
     var kernel_idx = 0u;
 
@@ -43,7 +44,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         for (var dx = -2; dx <= 2; dx++) {
             let pos = coords + vec2<i32>(dx, dy);
             let packed = textureLoad(surface_texture, pos, 0).r;
-            let timestamp = f32(packed & 0x7FFFFFFFu);
+            let timestamp = f32(packed >> 1u);
 
             log_response += timestamp * LOG_KERNEL[kernel_idx];
             kernel_idx++;

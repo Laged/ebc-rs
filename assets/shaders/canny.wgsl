@@ -66,6 +66,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // Step 1: Apply Gaussian blur to 5x5 neighborhood
+    // Surface texture packs: (timestamp << 1) | polarity
     var blurred = 0.0;
     var kernel_idx = 0u;
 
@@ -73,7 +74,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         for (var dx = -2; dx <= 2; dx++) {
             let pos = coords + vec2<i32>(dx, dy);
             let packed = textureLoad(surface_texture, pos, 0).r;
-            let timestamp = f32(packed & 0x7FFFFFFFu);
+            let timestamp = f32(packed >> 1u);
 
             blurred += timestamp * GAUSSIAN_KERNEL[kernel_idx];
             kernel_idx++;
@@ -88,7 +89,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         for (var dx = -1; dx <= 1; dx++) {
             let pos = coords + vec2<i32>(dx, dy);
             let packed = textureLoad(surface_texture, pos, 0).r;
-            let timestamp = f32(packed & 0x7FFFFFFFu);
+            let timestamp = f32(packed >> 1u);
             neighborhood[idx] = timestamp;
             idx++;
         }
@@ -121,8 +122,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let left_packed = textureLoad(surface_texture, left_pos, 0).r;
         let right_packed = textureLoad(surface_texture, right_pos, 0).r;
 
-        let left_ts = f32(left_packed & 0x7FFFFFFFu);
-        let right_ts = f32(right_packed & 0x7FFFFFFFu);
+        let left_ts = f32(left_packed >> 1u);
+        let right_ts = f32(right_packed >> 1u);
 
         // Approximate gradient magnitude for neighbors
         neighbor1_mag = abs(left_ts - neighborhood[4]);
@@ -135,8 +136,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let tr_packed = textureLoad(surface_texture, tr_pos, 0).r;
         let bl_packed = textureLoad(surface_texture, bl_pos, 0).r;
 
-        let tr_ts = f32(tr_packed & 0x7FFFFFFFu);
-        let bl_ts = f32(bl_packed & 0x7FFFFFFFu);
+        let tr_ts = f32(tr_packed >> 1u);
+        let bl_ts = f32(bl_packed >> 1u);
 
         neighbor1_mag = abs(tr_ts - neighborhood[4]);
         neighbor2_mag = abs(bl_ts - neighborhood[4]);
@@ -148,8 +149,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let top_packed = textureLoad(surface_texture, top_pos, 0).r;
         let bottom_packed = textureLoad(surface_texture, bottom_pos, 0).r;
 
-        let top_ts = f32(top_packed & 0x7FFFFFFFu);
-        let bottom_ts = f32(bottom_packed & 0x7FFFFFFFu);
+        let top_ts = f32(top_packed >> 1u);
+        let bottom_ts = f32(bottom_packed >> 1u);
 
         neighbor1_mag = abs(top_ts - neighborhood[4]);
         neighbor2_mag = abs(bottom_ts - neighborhood[4]);
@@ -161,8 +162,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let tl_packed = textureLoad(surface_texture, tl_pos, 0).r;
         let br_packed = textureLoad(surface_texture, br_pos, 0).r;
 
-        let tl_ts = f32(tl_packed & 0x7FFFFFFFu);
-        let br_ts = f32(br_packed & 0x7FFFFFFFu);
+        let tl_ts = f32(tl_packed >> 1u);
+        let br_ts = f32(br_packed >> 1u);
 
         neighbor1_mag = abs(tl_ts - neighborhood[4]);
         neighbor2_mag = abs(br_ts - neighborhood[4]);

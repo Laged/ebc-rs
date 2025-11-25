@@ -18,10 +18,11 @@ struct EventParams {
     height: f32,
     time: f32,
     decay_tau: f32,
+    // Order must match visualizer.wgsl Params struct exactly!
     show_sobel: u32,
+    show_raw: u32,
     show_canny: u32,
     show_log: u32,
-    show_raw: u32,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
