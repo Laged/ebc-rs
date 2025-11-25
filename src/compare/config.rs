@@ -1,5 +1,6 @@
 //! Configuration for compare_live binary.
 
+use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -76,7 +77,7 @@ impl Default for DisplayConfig {
 }
 
 /// Complete configuration for compare_live
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Resource)]
 pub struct CompareConfig {
     #[serde(default)]
     pub sobel: DetectorConfig,
