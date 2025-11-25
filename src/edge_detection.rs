@@ -10,6 +10,7 @@ pub struct EdgeDetectionPlugin;
 impl Plugin for EdgeDetectionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SurfaceImage>()
+            .init_resource::<FilteredSurfaceImage>()
             .init_resource::<SobelImage>()
             .init_resource::<CannyImage>()
             .init_resource::<LogImage>()
@@ -17,6 +18,7 @@ impl Plugin for EdgeDetectionPlugin {
             .init_resource::<EdgeParams>()
             .add_plugins(ExtractResourcePlugin::<EventData>::default())
             .add_plugins(ExtractResourcePlugin::<SurfaceImage>::default())
+            .add_plugins(ExtractResourcePlugin::<FilteredSurfaceImage>::default())
             .add_plugins(ExtractResourcePlugin::<SobelImage>::default())
             .add_plugins(ExtractResourcePlugin::<CannyImage>::default())
             .add_plugins(ExtractResourcePlugin::<LogImage>::default())
@@ -43,6 +45,8 @@ impl Plugin for EdgeDetectionPlugin {
 
         render_app
             .init_resource::<EventComputePipeline>()
+            .init_resource::<PreprocessPipeline>()
+            .init_resource::<PreprocessBindGroup>()
             .init_resource::<SobelPipeline>()
             .init_resource::<CannyPipeline>()
             .init_resource::<LogPipeline>()
@@ -52,6 +56,7 @@ impl Plugin for EdgeDetectionPlugin {
             .add_systems(Render, prepare_events.in_set(RenderSystems::Prepare))
             .add_systems(Render, prepare_readback.in_set(RenderSystems::Prepare))
             .add_systems(Render, queue_bind_group.in_set(RenderSystems::Queue))
+            .add_systems(Render, prepare_preprocess.in_set(RenderSystems::Queue))
             .add_systems(Render, prepare_sobel.in_set(RenderSystems::Queue))
             .add_systems(Render, prepare_canny.in_set(RenderSystems::Queue))
             .add_systems(Render, prepare_log.in_set(RenderSystems::Queue))
@@ -59,12 +64,14 @@ impl Plugin for EdgeDetectionPlugin {
 
         let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
         render_graph.add_node(EventLabel, EventAccumulationNode::default());
+        render_graph.add_node(PreprocessLabel, PreprocessNode::default());
         render_graph.add_node(SobelLabel, SobelNode::default());
         render_graph.add_node(CannyLabel, CannyNode::default());
         render_graph.add_node(LogLabel, LogNode::default());
         render_graph.add_node(ReadbackLabel, ReadbackNode::default());
-        // Render graph: Event → Sobel → Canny → LoG → Readback → Camera
-        render_graph.add_node_edge(EventLabel, SobelLabel);
+        // Render graph: Event → Preprocess → Sobel → Canny → LoG → Readback → Camera
+        render_graph.add_node_edge(EventLabel, PreprocessLabel);
+        render_graph.add_node_edge(PreprocessLabel, SobelLabel);
         render_graph.add_node_edge(SobelLabel, CannyLabel);
         render_graph.add_node_edge(CannyLabel, LogLabel);
         render_graph.add_node_edge(LogLabel, ReadbackLabel);

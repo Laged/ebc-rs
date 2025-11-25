@@ -1,4 +1,4 @@
-use crate::gpu::{EventData, SurfaceImage, SobelImage, CannyImage, LogImage, EdgeParams};
+use crate::gpu::{EventData, SurfaceImage, FilteredSurfaceImage, SobelImage, CannyImage, LogImage, EdgeParams};
 use crate::playback::PlaybackState;
 use crate::loader::DatLoader;
 use crate::EventFilePath;
@@ -98,6 +98,7 @@ fn setup_scene(
     mut materials: ResMut<Assets<EventMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut surface_image_res: ResMut<SurfaceImage>,
+    mut filtered_surface_res: ResMut<FilteredSurfaceImage>,
     mut sobel_image_res: ResMut<SobelImage>,
     mut canny_image_res: ResMut<CannyImage>,
     mut log_image_res: ResMut<LogImage>,
@@ -128,6 +129,18 @@ fn setup_scene(
         TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING;
     let surface_handle = images.add(surface_image);
     surface_image_res.handle = surface_handle.clone();
+
+    // Filtered surface texture (same format as surface - R32Uint)
+    let mut filtered_image = Image::new_fill(
+        size,
+        TextureDimension::D2,
+        &[0, 0, 0, 0],
+        TextureFormat::R32Uint,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    filtered_image.texture_descriptor.usage =
+        TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC;
+    filtered_surface_res.handle = images.add(filtered_image);
 
     // Sobel texture (R32Float for edge magnitude)
     let mut sobel_image = Image::new_fill(
