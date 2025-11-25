@@ -157,10 +157,30 @@ pub fn generate_fan_data(output_path: &Path, truth_path: &Path) -> std::io::Resu
         }
     }
 
-    // Write ground truth JSON
-    writeln!(truth_file, "[")?;
+    // Blade geometry constants used in generation
+    let r_min = 50.0_f32;
+    let sweep_k = 0.5_f32;
+    let width_root_rad = 0.5_f32;
+    let width_tip_rad = 0.3_f32;
+
+    // Write ground truth JSON with params header
+    writeln!(truth_file, "{{")?;
+    writeln!(truth_file, "  \"params\": {{")?;
+    writeln!(truth_file, "    \"center_x\": {:.1},", center_x)?;
+    writeln!(truth_file, "    \"center_y\": {:.1},", center_y)?;
+    writeln!(truth_file, "    \"radius_min\": {:.1},", r_min)?;
+    writeln!(truth_file, "    \"radius_max\": {:.1},", radius)?;
+    writeln!(truth_file, "    \"blade_count\": {},", blade_count)?;
+    writeln!(truth_file, "    \"rpm\": {:.1},", rpm)?;
+    writeln!(truth_file, "    \"sweep_k\": {:.2},", sweep_k)?;
+    writeln!(truth_file, "    \"width_root_rad\": {:.2},", width_root_rad)?;
+    writeln!(truth_file, "    \"width_tip_rad\": {:.2},", width_tip_rad)?;
+    writeln!(truth_file, "    \"edge_thickness_px\": 2.0")?;
+    writeln!(truth_file, "  }},")?;
+    writeln!(truth_file, "  \"frames\": [")?;
     writeln!(truth_file, "{}", truth_entries.join(",\n"))?;
-    writeln!(truth_file, "]")?;
+    writeln!(truth_file, "  ]")?;
+    writeln!(truth_file, "}}")?;
 
     Ok(())
 }
@@ -193,10 +213,12 @@ mod tests {
         let dat_contents = std::fs::read(&output_path)?;
         assert!(dat_contents.starts_with(b"% SYNTHETIC FAN DATA"));
 
-        // Verify JSON is valid
+        // Verify JSON is valid (now has params + frames structure)
         let json_contents = std::fs::read_to_string(&truth_path)?;
-        assert!(json_contents.starts_with("["));
-        assert!(json_contents.ends_with("]\n"));
+        assert!(json_contents.starts_with("{"));
+        assert!(json_contents.contains("\"params\""));
+        assert!(json_contents.contains("\"frames\""));
+        assert!(json_contents.ends_with("}\n"));
 
         Ok(())
     }
