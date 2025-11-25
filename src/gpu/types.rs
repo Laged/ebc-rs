@@ -1,8 +1,9 @@
 use bytemuck::{Pod, Zeroable};
+use bevy::render::render_resource::ShaderType;
 
 // GPU-compatible params struct that matches WGSL layout
 #[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable, ShaderType)]
 pub struct GpuParams {
     // Pre-processing
     pub filter_dead_pixels: u32,
