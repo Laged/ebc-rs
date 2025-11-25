@@ -34,6 +34,12 @@ pub fn generate_fan_data(output_path: &Path, truth_path: &Path) -> std::io::Resu
         std::fs::create_dir_all(parent)?;
     }
 
+    // Blade geometry constants
+    let r_min = 50.0_f32;
+    let sweep_k = 0.5_f32;
+    let width_root_rad = 0.5_f32;
+    let width_tip_rad = 0.3_f32;
+
     let mut file = File::create(output_path)?;
     let mut truth_file = File::create(truth_path)?;
 
@@ -86,22 +92,18 @@ pub fn generate_fan_data(output_path: &Path, truth_path: &Path) -> std::io::Resu
         let blade_spacing = 2.0 * PI / blade_count as f32;
         let root_angle = base_angle + (blade_idx as f32 * blade_spacing);
 
-        // Randomly select radius along blade (from 50px to full radius)
-        let r_min = 50.0;
+        // Randomly select radius along blade (from r_min to full radius)
         let r_max = radius;
         let r = r_min + rand(&mut seed) * (r_max - r_min);
 
         // Blade shape: logarithmic spiral for swept-back design
         // This creates a realistic fan blade curvature
-        let sweep_k = 0.5; // curvature parameter
         let sweep_angle = sweep_k * (r / r_min).ln();
         let center_angle = root_angle + sweep_angle;
 
         // Blade width distribution (wider at root, narrower at tip)
         let r_norm = (r - r_min) / (r_max - r_min);
-        let width_rad_root = 0.5;
-        let width_rad_tip = 0.3;
-        let blade_width = width_rad_root + (width_rad_tip - width_rad_root) * r_norm;
+        let blade_width = width_root_rad + (width_tip_rad - width_root_rad) * r_norm;
         let half_width = blade_width * 0.5;
 
         // Randomly assign event to leading or trailing edge
@@ -156,12 +158,6 @@ pub fn generate_fan_data(output_path: &Path, truth_path: &Path) -> std::io::Resu
             ));
         }
     }
-
-    // Blade geometry constants used in generation
-    let r_min = 50.0_f32;
-    let sweep_k = 0.5_f32;
-    let width_root_rad = 0.5_f32;
-    let width_tip_rad = 0.3_f32;
 
     // Write ground truth JSON with params header
     writeln!(truth_file, "{{")?;
