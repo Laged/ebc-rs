@@ -2,6 +2,7 @@ use crate::gpu::{EventData, SurfaceImage, FilteredSurfaceImage, SobelImage, Cann
 use crate::playback::PlaybackState;
 use crate::loader::DatLoader;
 use crate::EventFilePath;
+use crate::ground_truth::GroundTruthConfig;
 use bevy::asset::RenderAssetUsages;
 use bevy::{
     prelude::*,
@@ -82,12 +83,25 @@ fn load_data(
                 info!("Timestamp range: 0 to {}", last.timestamp);
             }
             commands.insert_resource(EventData { events });
+
+            // Try to load ground truth config from sidecar JSON
+            let gt_config = GroundTruthConfig::load_from_sidecar(std::path::Path::new(path))
+                .unwrap_or_default();
+
+            if gt_config.enabled {
+                info!(
+                    "Loaded ground truth config: {} blades, {} RPM, center ({}, {})",
+                    gt_config.blade_count, gt_config.rpm, gt_config.center_x, gt_config.center_y
+                );
+            }
+            commands.insert_resource(gt_config);
         }
         Err(e) => {
             error!("Failed to load data from {}: {:?}", path, e);
             commands.insert_resource(EventData { events: Vec::new() });
             playback_state.max_timestamp = 0;
             playback_state.current_time = 0.0;
+            commands.insert_resource(GroundTruthConfig::default());
         }
     }
 }
