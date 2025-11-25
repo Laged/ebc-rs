@@ -15,6 +15,12 @@ pub struct SurfaceImage {
     pub handle: Handle<Image>,
 }
 
+// Handle to filtered surface texture (preprocess output)
+#[derive(Resource, ExtractResource, Clone, Default)]
+pub struct FilteredSurfaceImage {
+    pub handle: Handle<Image>,
+}
+
 // Handle to sobel texture (Layer 1 output)
 #[derive(Resource, ExtractResource, Clone, Default)]
 pub struct SobelImage {
