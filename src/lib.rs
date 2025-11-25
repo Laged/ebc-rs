@@ -4,6 +4,8 @@ pub mod analysis;
 pub mod edge_detection;
 pub mod event_renderer;
 pub mod gpu;
+pub mod ground_truth;
+pub mod hyperparams;
 pub mod loader;
 pub mod metrics;
 pub mod playback;
@@ -19,5 +21,7 @@ impl Default for EventFilePath {
 }
 
 pub use analysis::{AnalysisPlugin, EdgeData};
+pub use ground_truth::GroundTruthConfig;
+pub use hyperparams::{HyperConfig, HyperResult};
 pub use loader::DatLoader;
 pub use metrics::EdgeMetrics;
