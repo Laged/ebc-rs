@@ -216,7 +216,7 @@ fn ui_system(
     mut edge_params: ResMut<EdgeParams>,
     diagnostics: Res<bevy::diagnostic::DiagnosticsStore>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    edge_data: Option<Res<crate::analysis::EdgeData>>,
+    metrics: Option<Res<crate::metrics::EdgeMetrics>>,
 ) {
     // Handle keyboard input for filter toggles (1/2/3/4)
     if keyboard.just_pressed(KeyCode::Digit1) {
@@ -327,23 +327,30 @@ fn ui_system(
     });
 
     // Edge Metrics window
-    if let Some(edge_data) = edge_data {
-        egui::Window::new("Edge Metrics").show(ctx, |ui| {
-            let total_pixels = edge_data.pixels.len();
-            let edge_pixels = edge_data.pixels.iter().filter(|&&v| v > 0.0).count();
-            let density = if total_pixels > 0 {
-                edge_pixels as f32 / total_pixels as f32
-            } else {
-                0.0
-            };
+    egui::Window::new("Edge Metrics").show(ctx, |ui| {
+        if let Some(metrics) = &metrics {
+            ui.heading("Basic");
+            ui.label(format!("Edge pixels: {}", metrics.edge_pixel_count));
+            ui.label(format!("Density: {:.4}", metrics.edge_density));
+            ui.label(format!("Centroid: ({:.1}, {:.1})", metrics.centroid.x, metrics.centroid.y));
 
-            ui.label(format!("Detector: {}", edge_data.detector));
-            ui.label(format!("Dimensions: {}x{}", edge_data.width, edge_data.height));
-            ui.label(format!("Edge pixels: {} / {}", edge_pixels, total_pixels));
-            ui.label(format!("Edge density: {:.4}", density));
-            ui.label(format!("Updated: {}", edge_data.updated));
-        });
-    }
+            ui.separator();
+            ui.heading("Circle Fit");
+            ui.label(format!("Center: ({:.1}, {:.1})", metrics.circle_center.x, metrics.circle_center.y));
+            ui.label(format!("Radius: {:.1} px", metrics.circle_radius));
+            ui.label(format!("Fit error: {:.2} px", metrics.circle_fit_error));
+            ui.label(format!("Inlier ratio: {:.1}%", metrics.circle_inlier_ratio * 100.0));
+
+            ui.separator();
+            ui.heading("Blade Detection");
+            ui.label(format!("Detected blades: {}", metrics.detected_blade_count));
+            for (i, angle) in metrics.angular_peaks.iter().enumerate() {
+                ui.label(format!("  Blade {}: {:.1}°", i + 1, angle.to_degrees()));
+            }
+        } else {
+            ui.label("No metrics available");
+        }
+    });
 }
 
 pub struct EventRendererPlugin;
