@@ -5,6 +5,7 @@ pub mod edge_detection;
 pub mod event_renderer;
 pub mod gpu;
 pub mod loader;
+pub mod metrics;
 pub mod playback;
 pub mod synthesis;
 
@@ -19,3 +20,4 @@ impl Default for EventFilePath {
 
 pub use analysis::{AnalysisPlugin, EdgeData};
 pub use loader::DatLoader;
+pub use metrics::EdgeMetrics;
