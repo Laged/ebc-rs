@@ -1,12 +1,23 @@
-@group(0) @binding(0) var surface_texture: texture_2d<u32>;
+// Sobel edge detection shader
+// Input: Pre-filtered surface texture from preprocess stage
+// Output: Binary edge map (1.0 = edge, 0.0 = not edge)
+
+@group(0) @binding(0) var filtered_texture: texture_2d<u32>;
 @group(0) @binding(1) var gradient_output: texture_storage_2d<r32float, write>;
 
 struct EdgeParams {
-    threshold: f32,
     filter_dead_pixels: u32,
     filter_density: u32,
-    filter_bidirectional: u32,
     filter_temporal: u32,
+    min_density_count: u32,
+    min_temporal_spread: f32,
+    sobel_threshold: f32,
+    canny_low_threshold: f32,
+    canny_high_threshold: f32,
+    log_threshold: f32,
+    filter_bidirectional: u32,
+    bidirectional_ratio: f32,
+    _padding: f32,
 }
 
 @group(0) @binding(2) var<uniform> params: EdgeParams;
@@ -14,7 +25,7 @@ struct EdgeParams {
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let coords = vec2<i32>(global_id.xy);
-    let dims = textureDimensions(surface_texture);
+    let dims = textureDimensions(filtered_texture);
 
     if (coords.x >= i32(dims.x) || coords.y >= i32(dims.y)) {
         return;
@@ -27,57 +38,24 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // Load 3x3 neighborhood and extract timestamps
-    // Surface texture packs: (timestamp << 1) | polarity
+    // Filtered texture packs: (timestamp << 1) | polarity (or 0 if filtered out)
     var timestamps: array<f32, 9>;
     var idx = 0u;
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
             let pos = coords + vec2<i32>(dx, dy);
-            let packed = textureLoad(surface_texture, pos, 0).r;
+            let packed = textureLoad(filtered_texture, pos, 0).r;
             // Extract timestamp by shifting right (polarity is in bit 0)
             timestamps[idx] = f32(packed >> 1u);
             idx++;
         }
     }
 
-    // Filter 1: Dead pixel check
-    if (params.filter_dead_pixels == 1u) {
-        let center_timestamp = timestamps[4]; // Center of 3x3 grid
-        if (center_timestamp < 1.0) {  // No events at center
-            textureStore(gradient_output, coords, vec4<f32>(0.0));
-            return;
-        }
-    }
-
-    // Filter 2: Event density check
-    if (params.filter_density == 1u) {
-        var active_count = 0u;
-        for (var i = 0u; i < 9u; i++) {
-            if (timestamps[i] > 1.0) {
-                active_count++;
-            }
-        }
-        if (active_count < 5u) {  // Need at least 5/9 pixels with events
-            textureStore(gradient_output, coords, vec4<f32>(0.0));
-            return;
-        }
-    }
-
-    // Filter 4: Temporal variance
-    if (params.filter_temporal == 1u) {
-        var min_ts = timestamps[0];
-        var max_ts = timestamps[0];
-        for (var i = 1u; i < 9u; i++) {
-            if (timestamps[i] > 0.0) {
-                min_ts = min(min_ts, timestamps[i]);
-                max_ts = max(max_ts, timestamps[i]);
-            }
-        }
-        let ts_range = max_ts - min_ts;
-        if (ts_range < 500.0) {  // Minimum 500μs timestamp spread
-            textureStore(gradient_output, coords, vec4<f32>(0.0));
-            return;
-        }
+    // Check if center pixel was filtered out by preprocess stage
+    let center_timestamp = timestamps[4];
+    if (center_timestamp < 1.0) {
+        textureStore(gradient_output, coords, vec4<f32>(0.0));
+        return;
     }
 
     // Sobel kernels
@@ -92,11 +70,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let gy = -timestamps[0] - 2.0 * timestamps[1] - timestamps[2]
              + timestamps[6] + 2.0 * timestamps[7] + timestamps[8];
 
-    // Filter 3: Bidirectional gradient check
+    // Post-processing: Bidirectional gradient check
+    // Requires significant gradient in both X and Y directions
     if (params.filter_bidirectional == 1u) {
         let gx_abs = abs(gx);
         let gy_abs = abs(gy);
-        let min_directional = params.threshold * 0.3;
+        let min_directional = params.sobel_threshold * params.bidirectional_ratio;
         if (gx_abs < min_directional || gy_abs < min_directional) {
             textureStore(gradient_output, coords, vec4<f32>(0.0));
             return;
@@ -106,6 +85,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let magnitude = sqrt(gx * gx + gy * gy);
 
     // Threshold and write
-    let edge_value = select(0.0, 1.0, magnitude > params.threshold);
+    let edge_value = select(0.0, 1.0, magnitude > params.sobel_threshold);
     textureStore(gradient_output, coords, vec4<f32>(edge_value));
 }

@@ -7,7 +7,7 @@ use bevy::render::{
     texture::GpuImage,
 };
 use bytemuck::{Pod, Zeroable};
-use super::resources::{EdgeParams, SurfaceImage, CannyImage};
+use super::resources::{EdgeParams, FilteredSurfaceImage, CannyImage};
 
 // GPU-compatible CannyParams struct that matches WGSL layout
 #[repr(C)]
@@ -94,7 +94,7 @@ pub fn prepare_canny(
     render_queue: Res<RenderQueue>,
     pipeline: Res<CannyPipeline>,
     edge_params: Res<EdgeParams>,
-    surface_image: Res<SurfaceImage>,
+    filtered_image: Res<FilteredSurfaceImage>,
     canny_image: Res<CannyImage>,
     gpu_images: Res<RenderAssets<GpuImage>>,
     canny_buffer: Option<Res<CannyParamsBuffer>>,
@@ -122,8 +122,9 @@ pub fn prepare_canny(
     };
 
     // Create bind group if textures are ready
-    if let (Some(surface_gpu), Some(canny_gpu)) = (
-        gpu_images.get(&surface_image.handle),
+    // Now uses FilteredSurfaceImage instead of SurfaceImage (pre-filtered by preprocess stage)
+    if let (Some(filtered_gpu), Some(canny_gpu)) = (
+        gpu_images.get(&filtered_image.handle),
         gpu_images.get(&canny_image.handle),
     ) {
         let bind_group = render_device.create_bind_group(
@@ -132,7 +133,7 @@ pub fn prepare_canny(
             &[
                 BindGroupEntry {
                     binding: 0,
-                    resource: BindingResource::TextureView(&surface_gpu.texture_view),
+                    resource: BindingResource::TextureView(&filtered_gpu.texture_view),
                 },
                 BindGroupEntry {
                     binding: 1,

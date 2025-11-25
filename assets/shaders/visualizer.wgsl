@@ -9,6 +9,7 @@ struct Params {
     show_raw: u32,
     show_canny: u32,
     show_log: u32,
+    show_ground_truth: u32,
 }
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> params: Params;
@@ -19,6 +20,8 @@ struct Params {
 @group(#{MATERIAL_BIND_GROUP}) @binding(5) var canny_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(6) var log_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(7) var log_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(8) var ground_truth_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(9) var ground_truth_sampler: sampler;
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -73,6 +76,16 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         if (edge_val > 0.0) {
             let magenta = vec3<f32>(1.0, 0.0, 1.0);
             output_color = mix(output_color, magenta, 0.5);  // 50% alpha blend
+        }
+    }
+
+    // Layer 4: Ground truth edges (green) with 50% alpha blend
+    if (params.show_ground_truth == 1u) {
+        let gt_val = textureSample(ground_truth_texture, ground_truth_sampler, in.uv);
+        // R channel = edge pixels
+        if (gt_val.r > 0.0) {
+            let green = vec3<f32>(0.0, 1.0, 0.0);
+            output_color = mix(output_color, green, 0.5);
         }
     }
 

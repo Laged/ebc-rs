@@ -1,0 +1,14 @@
+{
+  "detector": "log",
+  "window_size_us": 500.0,
+  "threshold": 2000.0,
+  "canny_low": 50.0,
+  "canny_high": 150.0,
+  "filter_dead_pixels": true,
+  "filter_density": false,
+  "filter_temporal": false,
+  "min_density_count": 5,
+  "min_temporal_spread_us": 500.0,
+  "filter_bidirectional": false,
+  "bidirectional_ratio": 0.3
+}

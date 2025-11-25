@@ -1,4 +1,8 @@
-@group(0) @binding(0) var surface_texture: texture_2d<u32>;
+// Canny edge detection shader
+// Input: Pre-filtered surface texture from preprocess stage
+// Output: Edge map with strong edges (1.0), weak edges (0.5), non-edges (0.0)
+
+@group(0) @binding(0) var filtered_texture: texture_2d<u32>;
 @group(0) @binding(1) var canny_output: texture_storage_2d<r32float, write>;
 
 struct CannyParams {
@@ -10,7 +14,7 @@ struct CannyParams {
 
 @group(0) @binding(2) var<uniform> params: CannyParams;
 
-// 5x5 Gaussian kernel (sigma ≈ 1.4)
+// 5x5 Gaussian kernel (sigma approx 1.4)
 // Normalized to sum to 1.0 for proper averaging
 const GAUSSIAN_KERNEL: array<f32, 25> = array<f32, 25>(
     0.00390625, 0.015625, 0.0234375, 0.015625, 0.00390625,
@@ -27,7 +31,7 @@ const GAUSSIAN_KERNEL: array<f32, 25> = array<f32, 25>(
 
 const PI: f32 = 3.14159265359;
 
-// Quantize gradient direction to one of 4 directions: 0°, 45°, 90°, 135°
+// Quantize gradient direction to one of 4 directions: 0 deg, 45 deg, 90 deg, 135 deg
 // Returns 0, 1, 2, or 3
 fn quantize_direction(angle: f32) -> u32 {
     // Normalize angle to [0, PI)
@@ -40,20 +44,20 @@ fn quantize_direction(angle: f32) -> u32 {
     let degrees = normalized * 180.0 / PI;
 
     if (degrees < 22.5 || degrees >= 157.5) {
-        return 0u; // 0° (horizontal)
+        return 0u; // 0 deg (horizontal)
     } else if (degrees >= 22.5 && degrees < 67.5) {
-        return 1u; // 45° (diagonal /)
+        return 1u; // 45 deg (diagonal /)
     } else if (degrees >= 67.5 && degrees < 112.5) {
-        return 2u; // 90° (vertical)
+        return 2u; // 90 deg (vertical)
     } else {
-        return 3u; // 135° (diagonal \)
+        return 3u; // 135 deg (diagonal \)
     }
 }
 
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let coords = vec2<i32>(global_id.xy);
-    let dims = textureDimensions(surface_texture);
+    let dims = textureDimensions(filtered_texture);
 
     if (coords.x >= i32(dims.x) || coords.y >= i32(dims.y)) {
         return;
@@ -65,15 +69,22 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
+    // Check if center pixel was filtered out by preprocess stage
+    let center_packed = textureLoad(filtered_texture, coords, 0).r;
+    if (center_packed == 0u) {
+        textureStore(canny_output, coords, vec4<f32>(0.0));
+        return;
+    }
+
     // Step 1: Apply Gaussian blur to 5x5 neighborhood
-    // Surface texture packs: (timestamp << 1) | polarity
+    // Filtered texture packs: (timestamp << 1) | polarity (or 0 if filtered out)
     var blurred = 0.0;
     var kernel_idx = 0u;
 
     for (var dy = -2; dy <= 2; dy++) {
         for (var dx = -2; dx <= 2; dx++) {
             let pos = coords + vec2<i32>(dx, dy);
-            let packed = textureLoad(surface_texture, pos, 0).r;
+            let packed = textureLoad(filtered_texture, pos, 0).r;
             let timestamp = f32(packed >> 1u);
 
             blurred += timestamp * GAUSSIAN_KERNEL[kernel_idx];
@@ -88,7 +99,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
             let pos = coords + vec2<i32>(dx, dy);
-            let packed = textureLoad(surface_texture, pos, 0).r;
+            let packed = textureLoad(filtered_texture, pos, 0).r;
             let timestamp = f32(packed >> 1u);
             neighborhood[idx] = timestamp;
             idx++;
@@ -115,12 +126,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     // Load neighbors based on quantized direction
     if (dir_quantized == 0u) {
-        // 0° (horizontal): compare with left and right
+        // 0 deg (horizontal): compare with left and right
         let left_pos = coords + vec2<i32>(-1, 0);
         let right_pos = coords + vec2<i32>(1, 0);
 
-        let left_packed = textureLoad(surface_texture, left_pos, 0).r;
-        let right_packed = textureLoad(surface_texture, right_pos, 0).r;
+        let left_packed = textureLoad(filtered_texture, left_pos, 0).r;
+        let right_packed = textureLoad(filtered_texture, right_pos, 0).r;
 
         let left_ts = f32(left_packed >> 1u);
         let right_ts = f32(right_packed >> 1u);
@@ -129,12 +140,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         neighbor1_mag = abs(left_ts - neighborhood[4]);
         neighbor2_mag = abs(right_ts - neighborhood[4]);
     } else if (dir_quantized == 1u) {
-        // 45° (diagonal /): compare with top-right and bottom-left
+        // 45 deg (diagonal /): compare with top-right and bottom-left
         let tr_pos = coords + vec2<i32>(1, -1);
         let bl_pos = coords + vec2<i32>(-1, 1);
 
-        let tr_packed = textureLoad(surface_texture, tr_pos, 0).r;
-        let bl_packed = textureLoad(surface_texture, bl_pos, 0).r;
+        let tr_packed = textureLoad(filtered_texture, tr_pos, 0).r;
+        let bl_packed = textureLoad(filtered_texture, bl_pos, 0).r;
 
         let tr_ts = f32(tr_packed >> 1u);
         let bl_ts = f32(bl_packed >> 1u);
@@ -142,12 +153,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         neighbor1_mag = abs(tr_ts - neighborhood[4]);
         neighbor2_mag = abs(bl_ts - neighborhood[4]);
     } else if (dir_quantized == 2u) {
-        // 90° (vertical): compare with top and bottom
+        // 90 deg (vertical): compare with top and bottom
         let top_pos = coords + vec2<i32>(0, -1);
         let bottom_pos = coords + vec2<i32>(0, 1);
 
-        let top_packed = textureLoad(surface_texture, top_pos, 0).r;
-        let bottom_packed = textureLoad(surface_texture, bottom_pos, 0).r;
+        let top_packed = textureLoad(filtered_texture, top_pos, 0).r;
+        let bottom_packed = textureLoad(filtered_texture, bottom_pos, 0).r;
 
         let top_ts = f32(top_packed >> 1u);
         let bottom_ts = f32(bottom_packed >> 1u);
@@ -155,12 +166,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         neighbor1_mag = abs(top_ts - neighborhood[4]);
         neighbor2_mag = abs(bottom_ts - neighborhood[4]);
     } else {
-        // 135° (diagonal \): compare with top-left and bottom-right
+        // 135 deg (diagonal \): compare with top-left and bottom-right
         let tl_pos = coords + vec2<i32>(-1, -1);
         let br_pos = coords + vec2<i32>(1, 1);
 
-        let tl_packed = textureLoad(surface_texture, tl_pos, 0).r;
-        let br_packed = textureLoad(surface_texture, br_pos, 0).r;
+        let tl_packed = textureLoad(filtered_texture, tl_pos, 0).r;
+        let br_packed = textureLoad(filtered_texture, br_pos, 0).r;
 
         let tl_ts = f32(tl_packed >> 1u);
         let br_ts = f32(br_packed >> 1u);

@@ -24,6 +24,7 @@ struct EventParams {
     show_raw: u32,
     show_canny: u32,
     show_log: u32,
+    show_ground_truth: u32,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -41,6 +42,9 @@ struct EventMaterial {
     #[texture(6)]
     #[sampler(7)]
     log_texture: Handle<Image>,
+    #[texture(8)]
+    #[sampler(9)]
+    ground_truth_texture: Handle<Image>,
 }
 
 impl Material for EventMaterial {
@@ -220,6 +224,7 @@ fn setup_scene(
         sobel_texture: sobel_handle,
         canny_texture: canny_handle,
         log_texture: log_handle,
+        ground_truth_texture: ground_truth_handle,
         params: EventParams {
             width: 1280.0,
             height: 720.0,
@@ -229,6 +234,7 @@ fn setup_scene(
             show_canny: 0,  // Off by default
             show_log: 0,    // Off by default
             show_raw: 0,    // Off by default
+            show_ground_truth: 0, // Off by default
         },
     });
     commands.insert_resource(CurrentMaterialHandle(material_handle.clone()));
@@ -253,6 +259,7 @@ fn update_material_params(
         material.params.show_canny = if edge_params.show_canny { 1 } else { 0 };
         material.params.show_log = if edge_params.show_log { 1 } else { 0 };
         material.params.show_raw = if edge_params.show_raw { 1 } else { 0 };
+        material.params.show_ground_truth = if edge_params.show_ground_truth { 1 } else { 0 };
     }
 }
 

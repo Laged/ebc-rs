@@ -21,9 +21,10 @@ use ebc_rs::{
     analysis::{EdgeData, EdgeDataReceiver, EdgeDataSender},
     gpu::{
         ActiveDetector, CannyImage, CannyLabel, CannyNode, CannyPipeline, EdgeParams,
-        EdgeReadbackBuffer, EventComputePipeline, EventData, EventLabel, GpuEventBuffer,
-        LogImage, LogLabel, LogNode, LogPipeline, ReadbackLabel, ReadbackNode, SobelImage,
-        SobelLabel, SobelNode, SobelPipeline, SurfaceImage,
+        EdgeReadbackBuffer, EventComputePipeline, EventData, EventLabel, FilteredSurfaceImage,
+        GpuEventBuffer, LogImage, LogLabel, LogNode, LogPipeline, PreprocessBindGroup,
+        PreprocessLabel, PreprocessNode, PreprocessPipeline, ReadbackLabel, ReadbackNode,
+        SobelImage, SobelLabel, SobelNode, SobelPipeline, SurfaceImage,
     },
     metrics::EdgeMetrics,
     playback::PlaybackState,
@@ -286,11 +287,13 @@ impl Plugin for DetectorTestPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ExtractResourcePlugin::<EventData>::default())
             .add_plugins(ExtractResourcePlugin::<SurfaceImage>::default())
+            .add_plugins(ExtractResourcePlugin::<FilteredSurfaceImage>::default())
             .add_plugins(ExtractResourcePlugin::<SobelImage>::default())
             .add_plugins(ExtractResourcePlugin::<CannyImage>::default())
             .add_plugins(ExtractResourcePlugin::<LogImage>::default())
             .add_plugins(ExtractResourcePlugin::<PlaybackState>::default())
             .init_resource::<SurfaceImage>()
+            .init_resource::<FilteredSurfaceImage>()
             .init_resource::<SobelImage>()
             .init_resource::<CannyImage>()
             .init_resource::<LogImage>()
@@ -318,6 +321,8 @@ impl Plugin for DetectorTestPlugin {
         // Initialize render world resources
         render_app
             .init_resource::<EventComputePipeline>()
+            .init_resource::<PreprocessPipeline>()
+            .init_resource::<PreprocessBindGroup>()
             .init_resource::<SobelPipeline>()
             .init_resource::<CannyPipeline>()
             .init_resource::<LogPipeline>()
@@ -341,6 +346,10 @@ impl Plugin for DetectorTestPlugin {
             .add_systems(
                 Render,
                 ebc_rs::gpu::prepare_events.in_set(RenderSystems::Prepare),
+            )
+            .add_systems(
+                Render,
+                ebc_rs::gpu::prepare_preprocess.in_set(RenderSystems::Prepare),
             )
             .add_systems(
                 Render,
@@ -370,13 +379,15 @@ impl Plugin for DetectorTestPlugin {
         // Build render graph
         let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
         render_graph.add_node(EventLabel, ebc_rs::gpu::EventAccumulationNode::default());
+        render_graph.add_node(PreprocessLabel, PreprocessNode::default());
         render_graph.add_node(SobelLabel, SobelNode::default());
         render_graph.add_node(CannyLabel, CannyNode::default());
         render_graph.add_node(LogLabel, LogNode::default());
         render_graph.add_node(ReadbackLabel, ReadbackNode::default());
 
-        // Event → Sobel → Canny → LoG → Readback → Camera
-        render_graph.add_node_edge(EventLabel, SobelLabel);
+        // Event → Preprocess → Sobel → Canny → LoG → Readback → Camera
+        render_graph.add_node_edge(EventLabel, PreprocessLabel);
+        render_graph.add_node_edge(PreprocessLabel, SobelLabel);
         render_graph.add_node_edge(SobelLabel, CannyLabel);
         render_graph.add_node_edge(CannyLabel, LogLabel);
         render_graph.add_node_edge(LogLabel, ReadbackLabel);
@@ -388,6 +399,7 @@ fn setup_test_textures(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut surface_image: ResMut<SurfaceImage>,
+    mut filtered_image: ResMut<FilteredSurfaceImage>,
     mut sobel_image: ResMut<SobelImage>,
     mut canny_image: ResMut<CannyImage>,
     mut log_image: ResMut<LogImage>,
@@ -415,6 +427,18 @@ fn setup_test_textures(
     surface.texture_descriptor.usage =
         TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING | TextureUsages::STORAGE_BINDING;
     surface_image.handle = images.add(surface);
+
+    // Filtered surface texture (R32Uint) - output of preprocess stage
+    let mut filtered = Image::new_fill(
+        size,
+        TextureDimension::D2,
+        &[0, 0, 0, 0],
+        TextureFormat::R32Uint,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    filtered.texture_descriptor.usage =
+        TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC;
+    filtered_image.handle = images.add(filtered);
 
     // Sobel texture (R32Float)
     let mut sobel = Image::new_fill(

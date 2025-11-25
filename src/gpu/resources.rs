@@ -108,6 +108,7 @@ pub struct EdgeParams {
     pub show_canny: bool,
     pub show_log: bool,
     pub show_raw: bool,
+    pub show_ground_truth: bool,
 
     // Sobel
     pub sobel_threshold: f32,
@@ -146,6 +147,7 @@ impl Default for EdgeParams {
             show_canny: false,
             show_log: false,
             show_raw: false,
+            show_ground_truth: false,
             sobel_threshold: 1000.0,
             threshold: 1000.0, // Keep for backwards compatibility
             canny_low_threshold: 50.0,
