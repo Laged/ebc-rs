@@ -6,6 +6,7 @@ pub mod preprocess;
 pub mod resources;
 pub mod types;
 pub mod readback;
+pub mod ground_truth;
 
 // Re-export commonly used items
 pub use accumulation::{
@@ -27,6 +28,10 @@ pub use sobel::{
 pub use preprocess::{
     PreprocessLabel, PreprocessNode, PreprocessPipeline, PreprocessBindGroup,
     prepare_preprocess,
+};
+pub use ground_truth::{
+    GroundTruthBindGroup, GroundTruthLabel, GroundTruthNode, GroundTruthPipeline,
+    prepare_ground_truth,
 };
 pub use resources::{ActiveDetector, CannyImage, EdgeParams, EdgeReadbackBuffer, EventData, FilteredSurfaceImage, GpuEventBuffer, GroundTruthImage, LogImage, SobelImage, SurfaceImage};
 pub use types::{GpuParams, GpuEdgeParams, GpuEvent};
