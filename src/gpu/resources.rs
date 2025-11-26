@@ -39,6 +39,12 @@ pub struct LogImage {
     pub handle: Handle<Image>,
 }
 
+// Handle to CM output image (contrast maximization for RPM estimation)
+#[derive(Resource, ExtractResource, Clone, Default)]
+pub struct CmImage {
+    pub handle: Handle<Image>,
+}
+
 // Handle to ground truth texture (validation output)
 #[derive(Resource, ExtractResource, Clone, Default)]
 pub struct GroundTruthImage {

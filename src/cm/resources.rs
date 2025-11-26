@@ -2,14 +2,7 @@
 //! Resources for Contrast Maximization RPM estimation
 
 use bevy::prelude::*;
-use bevy::render::extract_resource::ExtractResource;
 use bytemuck::{Pod, Zeroable};
-
-/// CM output image (replaces Canny in Q3)
-#[derive(Resource, ExtractResource, Clone, Default)]
-pub struct CmImage {
-    pub handle: Handle<Image>,
-}
 
 /// CM parameters for CPU-side control
 #[derive(Resource, Clone)]

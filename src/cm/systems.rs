@@ -11,10 +11,10 @@ use bevy::render::{
 };
 
 use super::{
-    CmImage, CmParams, GpuCmParams,
+    CmParams, GpuCmParams,
     CmPipeline, CmBindGroups, CmBuffers, GpuContrastParams,
 };
-use crate::gpu::{GpuEventBuffer, EventData};
+use crate::gpu::{CmImage, GpuEventBuffer, EventData};
 use crate::playback::PlaybackState;
 use crate::metrics::EdgeMetrics;
 
