@@ -21,7 +21,7 @@ use ebc_rs::compare::{
 };
 use ebc_rs::edge_detection::EdgeDetectionPlugin;
 use ebc_rs::gpu::EdgeParams;
-use ebc_rs::EventFilePath;
+use ebc_rs::{CompareLiveMode, EventFilePath};
 
 #[derive(Parser, Debug)]
 #[command(name = "compare_live")]
@@ -87,6 +87,7 @@ fn main() {
         .add_plugins(EdgeDetectionPlugin)
         .add_plugins(CompositeRenderPlugin)
         .add_plugins(CompareUiPlugin)
+        .insert_resource(CompareLiveMode)  // Signal to EventRendererPlugin to skip mesh spawning
         .insert_resource(EventFilePath(first_file.to_string_lossy().to_string()))
         .insert_resource(DataFileState {
             files: valid_files,

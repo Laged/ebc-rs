@@ -121,6 +121,7 @@ fn setup_scene(
     mut canny_image_res: ResMut<CannyImage>,
     mut log_image_res: ResMut<LogImage>,
     mut ground_truth_image_res: ResMut<GroundTruthImage>,
+    compare_live_mode: Option<Res<crate::CompareLiveMode>>,
 ) {
     // Camera
     commands.spawn((
@@ -239,12 +240,16 @@ fn setup_scene(
     });
     commands.insert_resource(CurrentMaterialHandle(material_handle.clone()));
 
-    // Quad
-    commands.spawn((
-        Mesh3d(meshes.add(Rectangle::new(1280.0, 720.0))),
-        MeshMaterial3d(material_handle),
-        Transform::from_xyz(0.0, 0.0, 0.0),
-    ));
+    // Skip spawning the EventMaterial mesh in compare_live mode
+    // The composite mesh will be used instead
+    if compare_live_mode.is_none() {
+        // Quad
+        commands.spawn((
+            Mesh3d(meshes.add(Rectangle::new(1280.0, 720.0))),
+            MeshMaterial3d(material_handle),
+            Transform::from_xyz(0.0, 0.0, 0.0),
+        ));
+    }
 }
 
 fn update_material_params(

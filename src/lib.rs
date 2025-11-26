@@ -21,6 +21,11 @@ impl Default for EventFilePath {
     }
 }
 
+/// Marker resource to indicate compare_live mode
+/// When present, EventRendererPlugin will skip spawning the EventMaterial mesh
+#[derive(Resource)]
+pub struct CompareLiveMode;
+
 pub use analysis::{AnalysisPlugin, EdgeData};
 pub use ground_truth::{GroundTruthConfig, GroundTruthMetrics};
 pub use hyperparams::{HyperConfig, HyperResult};
