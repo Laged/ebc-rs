@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use bevy::render::extract_resource::ExtractResourcePlugin;
 use bevy::render::render_graph::RenderGraph;
-use bevy::render::{Render, RenderApp, RenderSystems};
+use bevy::render::{Render, RenderApp, RenderSystems, ExtractSchedule, Extract};
 
 use super::{
     CompositeBindGroup, CompositeImage, CompositeLabel, CompositeNode,
@@ -12,7 +12,7 @@ use super::{
     MultiReadbackNode, prepare_multi_readback, read_multi_readback,
     setup_metrics_channel, receive_metrics, AllDetectorMetrics,
 };
-use crate::gpu::LogLabel;
+use crate::gpu::{LogLabel, EdgeParams};
 
 /// Plugin that adds composite rendering to the render graph
 pub struct CompositeRenderPlugin;
@@ -31,6 +31,14 @@ impl Plugin for CompositeRenderPlugin {
     }
 
     fn finish(&self, app: &mut App) {
+        // Custom extraction system for EdgeParams
+        fn extract_edge_params_for_composite(
+            mut commands: Commands,
+            edge_params: Extract<Res<EdgeParams>>,
+        ) {
+            commands.insert_resource(edge_params.clone());
+        }
+
         // Move sender to render world
         let sender = app.world_mut().remove_resource::<PendingMetricsSender>()
             .expect("PendingMetricsSender should exist");
@@ -42,6 +50,7 @@ impl Plugin for CompositeRenderPlugin {
             .init_resource::<CompositePipeline>()
             .init_resource::<CompositeBindGroup>()
             .init_resource::<MultiReadbackBuffers>()
+            .add_systems(ExtractSchedule, extract_edge_params_for_composite)
             .add_systems(Render, prepare_composite.in_set(RenderSystems::Queue))
             .add_systems(Render, prepare_multi_readback.in_set(RenderSystems::Queue))
             .add_systems(Render, read_multi_readback.in_set(RenderSystems::Cleanup));
