@@ -86,6 +86,7 @@
       # NOTE: These scripts assume you run them from the project root directory
       apps = forEachSupportedSystem ({ pkgs }:
         let
+          # Runtime libraries (for LD_LIBRARY_PATH)
           linuxDeps = with pkgs; [
             alsa-lib
             udev
@@ -98,13 +99,37 @@
             xorg.libXi
             xorg.libXrandr
           ];
+          # Dev packages with .pc files (for PKG_CONFIG_PATH)
+          # Many nix packages split dev files into .dev output
+          linuxDevDeps = with pkgs; [
+            alsa-lib.dev
+            udev.dev
+            libxkbcommon.dev
+            wayland.dev
+            wayland-protocols
+            vulkan-loader.dev
+            xorg.libX11.dev
+            xorg.libXcursor.dev
+            xorg.libXi.dev
+            xorg.libXrandr.dev
+          ];
           ldPath = pkgs.lib.makeLibraryPath linuxDeps;
+          pkgConfigPath = pkgs.lib.makeSearchPath "lib/pkgconfig" linuxDevDeps
+            + ":" + pkgs.lib.makeSearchPath "share/pkgconfig" linuxDevDeps;
+          cargo = pkgs.rustToolchain;
+          cc = pkgs.stdenv.cc;
+          # Common environment setup for all apps
+          envSetup = ''
+            export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+            export PKG_CONFIG_PATH="${pkgConfigPath}:''${PKG_CONFIG_PATH:-}"
+            export PATH="${cargo}/bin:${pkgs.pkg-config}/bin:${cc}/bin:$PATH"
+          '';
         in {
           # Generate synthetic test data with ground truth
           generate_data = {
             type = "app";
             program = toString (pkgs.writeShellScript "generate_data" ''
-              export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+              ${envSetup}
               exec cargo run --release --bin generate_synthetic
             '');
           };
@@ -113,7 +138,7 @@
           optimise_params = {
             type = "app";
             program = toString (pkgs.writeShellScript "optimise_params" ''
-              export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+              ${envSetup}
               exec cargo run --release --bin hypersearch -- \
                 --data data/synthetic/fan_test.dat \
                 --output results/synthetic_search.csv \
@@ -127,7 +152,7 @@
           compare_live = {
             type = "app";
             program = toString (pkgs.writeShellScript "compare_live" ''
-              export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+              ${envSetup}
               exec cargo run --release --bin compare_live -- \
                 --config config/detectors.toml \
                 data/synthetic/fan_test.dat
@@ -138,7 +163,7 @@
           compare_real = {
             type = "app";
             program = toString (pkgs.writeShellScript "compare_real" ''
-              export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+              ${envSetup}
               exec cargo run --release --bin compare_live -- \
                 --config config/detectors.toml \
                 data/fan/fan_const_rpm.dat
@@ -149,7 +174,7 @@
           visualize = {
             type = "app";
             program = toString (pkgs.writeShellScript "visualize" ''
-              export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+              ${envSetup}
               exec cargo run --release -- "''${1:-data/fan/fan_const_rpm.dat}"
             '');
           };
