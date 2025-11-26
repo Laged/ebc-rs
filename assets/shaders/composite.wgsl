@@ -10,6 +10,15 @@
 @group(0) @binding(3) var log_texture: texture_2d<f32>;
 @group(0) @binding(4) var output_texture: texture_storage_2d<rgba8unorm, write>;
 
+struct CompositeParams {
+    show_raw: u32,
+    show_sobel: u32,
+    show_canny: u32,
+    show_log: u32,
+}
+
+@group(0) @binding(5) var<uniform> params: CompositeParams;
+
 const BASE_WIDTH: u32 = 1280u;
 const BASE_HEIGHT: u32 = 720u;
 
@@ -44,26 +53,46 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     var color: vec3<f32>;
 
     if (!is_right && !is_bottom) {
-        // Top-left: Raw events (u32 -> normalize)
-        // FilteredSurface packs (timestamp << 1) | polarity, so non-zero = has event
-        let raw_value = textureLoad(raw_texture, source_coords, 0).r;
-        intensity = select(0.0, 1.0, raw_value > 0u);
-        color = RAW_COLOR;
+        // Top-left: Raw events
+        if (params.show_raw == 1u) {
+            // FilteredSurface packs (timestamp << 1) | polarity, so non-zero = has event
+            let raw_value = textureLoad(raw_texture, source_coords, 0).r;
+            intensity = select(0.0, 1.0, raw_value > 0u);
+            color = RAW_COLOR;
+        } else {
+            intensity = 0.0;
+            color = vec3<f32>(0.1, 0.1, 0.1); // Dark background when disabled
+        }
     } else if (is_right && !is_bottom) {
-        // Top-right: Sobel (outputs 0.0 or 1.0 binary)
-        let value = textureLoad(sobel_texture, source_coords, 0).r;
-        intensity = value;
-        color = SOBEL_COLOR;
+        // Top-right: Sobel
+        if (params.show_sobel == 1u) {
+            let value = textureLoad(sobel_texture, source_coords, 0).r;
+            intensity = value;
+            color = SOBEL_COLOR;
+        } else {
+            intensity = 0.0;
+            color = vec3<f32>(0.1, 0.1, 0.1);
+        }
     } else if (!is_right && is_bottom) {
-        // Bottom-left: Canny (outputs 0.0, 0.5, or 1.0)
-        let value = textureLoad(canny_texture, source_coords, 0).r;
-        intensity = value;
-        color = CANNY_COLOR;
+        // Bottom-left: Canny
+        if (params.show_canny == 1u) {
+            let value = textureLoad(canny_texture, source_coords, 0).r;
+            intensity = value;
+            color = CANNY_COLOR;
+        } else {
+            intensity = 0.0;
+            color = vec3<f32>(0.1, 0.1, 0.1);
+        }
     } else {
-        // Bottom-right: LoG (outputs 0.0 or 1.0 binary)
-        let value = textureLoad(log_texture, source_coords, 0).r;
-        intensity = value;
-        color = LOG_COLOR;
+        // Bottom-right: LoG
+        if (params.show_log == 1u) {
+            let value = textureLoad(log_texture, source_coords, 0).r;
+            intensity = value;
+            color = LOG_COLOR;
+        } else {
+            intensity = 0.0;
+            color = vec3<f32>(0.1, 0.1, 0.1);
+        }
     }
 
     // Draw border between quadrants (2px wide)
