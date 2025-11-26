@@ -20,6 +20,7 @@ use ebc_rs::compare::{
     CompareConfig, CompareUiPlugin, CompositeImage, CompositeRenderPlugin, DataFileState,
 };
 use ebc_rs::edge_detection::EdgeDetectionPlugin;
+use ebc_rs::gpu::EdgeParams;
 use ebc_rs::EventFilePath;
 
 #[derive(Parser, Debug)]
@@ -92,8 +93,16 @@ fn main() {
             current_index: 0,
         })
         .insert_resource(config)
-        .add_systems(Startup, setup_composite_texture)
+        .add_systems(Startup, (enable_all_detectors, setup_composite_texture).chain())
         .run();
+}
+
+/// Enable all detectors for compare_live mode
+fn enable_all_detectors(mut edge_params: ResMut<EdgeParams>) {
+    edge_params.show_sobel = true;
+    edge_params.show_canny = true;
+    edge_params.show_log = true;
+    edge_params.show_raw = true;
 }
 
 fn setup_composite_texture(
