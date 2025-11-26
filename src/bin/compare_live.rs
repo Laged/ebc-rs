@@ -10,6 +10,7 @@
 
 use bevy::prelude::*;
 use bevy::asset::RenderAssetUsages;
+use bevy::math::primitives::Rectangle;
 use bevy::render::render_resource::*;
 use bevy::window::WindowResolution;
 use clap::Parser;
@@ -98,6 +99,8 @@ fn main() {
 fn setup_composite_texture(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // Create 2560x1440 composite output texture
     let size = Extent3d {
@@ -111,7 +114,7 @@ fn setup_composite_texture(
         TextureDimension::D2,
         &[0, 0, 0, 255],
         TextureFormat::Rgba8Unorm,
-        RenderAssetUsages::RENDER_WORLD,
+        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
     );
     composite.texture_descriptor.usage =
         TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC;
@@ -119,7 +122,21 @@ fn setup_composite_texture(
     let handle = images.add(composite);
     commands.insert_resource(CompositeImage { handle: handle.clone() });
 
-    // Note: We don't spawn the sprite or camera here.
-    // The existing EdgeDetectionPlugin handles rendering the event surface.
-    // The composite shader will combine all detector outputs in the render graph.
+    // Create a material that displays the composite texture
+    let material = materials.add(StandardMaterial {
+        base_color_texture: Some(handle.clone()),
+        unlit: true,
+        ..default()
+    });
+
+    // Spawn a mesh quad displaying the composite texture
+    // Position at z=1 (just in front of EventRenderer's mesh at z=0)
+    // EventRenderer's Camera3d is at z=1000 looking at origin
+    // Use same size as EventRenderer's quad (1280x720) to fit in view
+    // The texture will be scaled down from 2560x1440 to fit
+    commands.spawn((
+        Mesh3d(meshes.add(Rectangle::new(1280.0, 720.0))),
+        MeshMaterial3d(material),
+        Transform::from_xyz(0.0, 0.0, 1.0),
+    ));
 }
