@@ -4,17 +4,10 @@
 use bevy::prelude::*;
 use bevy::render::{
     render_resource::*,
-    renderer::{RenderDevice, RenderQueue, RenderContext},
+    renderer::{RenderDevice, RenderContext},
     render_graph::{Node, NodeRunError, RenderGraphContext, RenderLabel},
-    render_asset::RenderAssets,
-    texture::GpuImage,
 };
 use bytemuck::{Pod, Zeroable};
-
-use super::{CmImage, GpuCmParams};
-use crate::gpu::{GpuEventBuffer, EventData};
-use crate::playback::PlaybackState;
-use crate::metrics::EdgeMetrics;
 
 /// Render graph label for CM node
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
@@ -255,7 +248,7 @@ pub struct CmBindGroups {
 }
 
 /// GPU buffers for CM
-#[derive(Resource)]
+#[derive(Resource, Clone)]
 pub struct CmBuffers {
     pub params: Buffer,
     pub iwe: Buffer,
