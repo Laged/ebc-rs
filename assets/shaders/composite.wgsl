@@ -45,23 +45,24 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     if (!is_right && !is_bottom) {
         // Top-left: Raw events (u32 -> normalize)
+        // FilteredSurface packs (timestamp << 1) | polarity, so non-zero = has event
         let raw_value = textureLoad(raw_texture, source_coords, 0).r;
-        intensity = clamp(f32(raw_value) / 10.0, 0.0, 1.0);
+        intensity = select(0.0, 1.0, raw_value > 0u);
         color = RAW_COLOR;
     } else if (is_right && !is_bottom) {
-        // Top-right: Sobel
+        // Top-right: Sobel (outputs 0.0 or 1.0 binary)
         let value = textureLoad(sobel_texture, source_coords, 0).r;
-        intensity = clamp(value / 500.0, 0.0, 1.0);
+        intensity = value;
         color = SOBEL_COLOR;
     } else if (!is_right && is_bottom) {
-        // Bottom-left: Canny
+        // Bottom-left: Canny (outputs 0.0, 0.5, or 1.0)
         let value = textureLoad(canny_texture, source_coords, 0).r;
-        intensity = clamp(value / 500.0, 0.0, 1.0);
+        intensity = value;
         color = CANNY_COLOR;
     } else {
-        // Bottom-right: LoG
+        // Bottom-right: LoG (outputs 0.0 or 1.0 binary)
         let value = textureLoad(log_texture, source_coords, 0).r;
-        intensity = clamp(value / 500.0, 0.0, 1.0);
+        intensity = value;
         color = LOG_COLOR;
     }
 

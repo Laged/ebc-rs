@@ -55,24 +55,46 @@ pub fn draw_metrics_overlay(
         });
     });
 
-    // Metrics panels for each quadrant
-    // Use fixed dimensions based on known window size (2560x1440)
-    let panel_width = 200.0;
-    let panel_height = 100.0;
-    let screen_width = 2560.0;
-    let screen_height = 1440.0;
+    // Metrics panels positioned near center where quadrants meet
+    // Window size: 2560x1440, each quadrant is 1280x720
+    // Panels should be positioned near the center dividing lines
+    let panel_width = 180.0;
+    let panel_height = 90.0;
+    let center_x = 1280.0;  // Horizontal divider
+    let center_y = 720.0;   // Vertical divider
+    let margin = 10.0;      // Gap from center lines
 
-    // Top-left: Raw
-    draw_detector_panel(ctx, "RAW", &metrics.raw, 10.0, 40.0, panel_width, panel_height);
+    // Q1 Top-left (RAW): position at bottom-right of quadrant (near center)
+    draw_detector_panel(
+        ctx, "RAW", &metrics.raw,
+        center_x - panel_width - margin,  // Left of center line
+        center_y - panel_height - margin, // Above center line
+        panel_width, panel_height
+    );
 
-    // Top-right: Sobel
-    draw_detector_panel(ctx, "SOBEL", &metrics.sobel, screen_width / 2.0 + 10.0, 40.0, panel_width, panel_height);
+    // Q2 Top-right (SOBEL): position at bottom-left of quadrant (near center)
+    draw_detector_panel(
+        ctx, "SOBEL", &metrics.sobel,
+        center_x + margin,                // Right of center line
+        center_y - panel_height - margin, // Above center line
+        panel_width, panel_height
+    );
 
-    // Bottom-left: Canny
-    draw_detector_panel(ctx, "CANNY", &metrics.canny, 10.0, screen_height / 2.0 + 10.0, panel_width, panel_height);
+    // Q3 Bottom-left (CANNY): position at top-right of quadrant (near center)
+    draw_detector_panel(
+        ctx, "CANNY", &metrics.canny,
+        center_x - panel_width - margin,  // Left of center line
+        center_y + margin,                // Below center line
+        panel_width, panel_height
+    );
 
-    // Bottom-right: LoG
-    draw_detector_panel(ctx, "LoG", &metrics.log, screen_width / 2.0 + 10.0, screen_height / 2.0 + 10.0, panel_width, panel_height);
+    // Q4 Bottom-right (LoG): position at top-left of quadrant (near center)
+    draw_detector_panel(
+        ctx, "LoG", &metrics.log,
+        center_x + margin,                // Right of center line
+        center_y + margin,                // Below center line
+        panel_width, panel_height
+    );
 }
 
 fn draw_detector_panel(
@@ -123,7 +145,7 @@ pub struct CompareUiPlugin;
 impl Plugin for CompareUiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DataFileState>()
-            .init_resource::<AllDetectorMetrics>()
+            // Note: AllDetectorMetrics is initialized by CompositeRenderPlugin
             // Use EguiPrimaryContextPass schedule for egui systems
             .add_systems(EguiPrimaryContextPass, draw_metrics_overlay)
             .add_systems(Update, handle_file_input);

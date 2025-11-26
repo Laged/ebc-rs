@@ -97,12 +97,33 @@ fn main() {
         .run();
 }
 
-/// Enable all detectors for compare_live mode
-fn enable_all_detectors(mut edge_params: ResMut<EdgeParams>) {
+/// Enable all detectors and apply config thresholds for compare_live mode
+fn enable_all_detectors(mut edge_params: ResMut<EdgeParams>, config: Res<CompareConfig>) {
+    // Enable all detector visibility
     edge_params.show_sobel = true;
     edge_params.show_canny = true;
     edge_params.show_log = true;
     edge_params.show_raw = true;
+
+    // Apply thresholds from config
+    edge_params.sobel_threshold = config.sobel.threshold;
+    edge_params.threshold = config.sobel.threshold;  // backwards compat
+    edge_params.filter_dead_pixels = config.sobel.filter_dead_pixels;
+
+    edge_params.canny_low_threshold = config.canny.low_threshold;
+    edge_params.canny_high_threshold = config.canny.high_threshold;
+
+    edge_params.log_threshold = config.log.threshold;
+
+    edge_params.show_ground_truth = config.display.show_ground_truth;
+
+    info!(
+        "Applied config: sobel_threshold={}, canny=[{},{}], log_threshold={}",
+        edge_params.sobel_threshold,
+        edge_params.canny_low_threshold,
+        edge_params.canny_high_threshold,
+        edge_params.log_threshold
+    );
 }
 
 fn setup_composite_texture(
