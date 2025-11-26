@@ -3,10 +3,10 @@
 
 // Input textures have different formats:
 // - raw_texture: R32Uint (event counts)
-// - sobel/canny/log: R32Float (edge magnitudes)
+// - sobel/cm/log: R32Float (edge magnitudes)
 @group(0) @binding(0) var raw_texture: texture_2d<u32>;
 @group(0) @binding(1) var sobel_texture: texture_2d<f32>;
-@group(0) @binding(2) var canny_texture: texture_2d<f32>;
+@group(0) @binding(2) var cm_texture: texture_2d<f32>;
 @group(0) @binding(3) var log_texture: texture_2d<f32>;
 @group(0) @binding(4) var output_texture: texture_storage_2d<rgba8unorm, write>;
 
@@ -74,9 +74,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             color = vec3<f32>(0.1, 0.1, 0.1);
         }
     } else if (!is_right && is_bottom) {
-        // Bottom-left: Canny
+        // Bottom-left: CM
         if (params.show_canny == 1u) {
-            let value = textureLoad(canny_texture, source_coords, 0).r;
+            let value = textureLoad(cm_texture, source_coords, 0).r;
             intensity = value;
             color = CANNY_COLOR;
         } else {
