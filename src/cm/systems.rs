@@ -152,7 +152,9 @@ pub fn prepare_cm(
         window_start: extracted.window_start,
         window_end: extracted.window_end,
         event_count: extracted.event_count,
+        _pad1: [0; 3],
         _padding: [0; 3],
+        _pad2: 0,
     };
     render_queue.write_buffer(&buffers.params, 0, bytemuck::bytes_of(&gpu_params));
 

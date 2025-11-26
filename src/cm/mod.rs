@@ -19,7 +19,6 @@ use bevy::render::{
 };
 
 use crate::gpu::PreprocessLabel;
-use crate::compare::CompositeLabel;
 
 /// Plugin for Contrast Maximization RPM estimation
 pub struct CmPlugin;
@@ -39,10 +38,9 @@ impl Plugin for CmPlugin {
             .add_systems(ExtractSchedule, extract_cm_params)
             .add_systems(Render, prepare_cm.in_set(RenderSystems::Prepare));
 
-        // Add to render graph
+        // Add to render graph (after Preprocess, edge to Composite added by CompositeRenderPlugin)
         let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
         graph.add_node(CmLabel, CmNode::default());
         graph.add_node_edge(PreprocessLabel, CmLabel);
-        graph.add_node_edge(CmLabel, CompositeLabel);
     }
 }

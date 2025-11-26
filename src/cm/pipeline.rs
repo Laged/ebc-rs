@@ -294,6 +294,13 @@ impl Node for CmNode {
             return Ok(());
         };
 
+        // Check if CM is enabled
+        let Some(extracted) = world.get_resource::<super::ExtractedCmParams>() else {
+            return Ok(());
+        };
+        if !extracted.enabled {
+            return Ok(());
+        }
         let encoder = render_context.command_encoder();
 
         // Pass 1: Warp events to build IWE
@@ -317,8 +324,8 @@ impl Node for CmNode {
             pass.set_pipeline(contrast_pl);
             pass.set_bind_group(0, contrast_bg, &[]);
             // Dispatch for image size * n_omega
-            let wg_x = (1280 + 7) / 8;
-            let wg_y = (720 + 7) / 8;
+            let wg_x = 1280_u32.div_ceil(8);
+            let wg_y = 720_u32.div_ceil(8);
             pass.dispatch_workgroups(wg_x, wg_y, 64); // n_omega slices
         }
 
@@ -341,8 +348,8 @@ impl Node for CmNode {
             });
             pass.set_pipeline(copy_pl);
             pass.set_bind_group(0, select_bg, &[]);
-            let wg_x = (1280 + 7) / 8;
-            let wg_y = (720 + 7) / 8;
+            let wg_x = 1280_u32.div_ceil(8);
+            let wg_y = 720_u32.div_ceil(8);
             pass.dispatch_workgroups(wg_x, wg_y, 1);
         }
 
