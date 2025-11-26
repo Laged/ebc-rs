@@ -12,6 +12,7 @@ use std::sync::mpsc::{Sender, Receiver, channel};
 use std::sync::Mutex;
 
 use crate::gpu::{FilteredSurfaceImage, SobelImage, CannyImage, LogImage};
+use crate::cm::CmResult;
 
 /// Metrics for a single detector
 #[derive(Debug, Clone, Default)]
@@ -28,7 +29,7 @@ pub struct DetectorMetrics {
 pub struct AllDetectorMetrics {
     pub raw: DetectorMetrics,
     pub sobel: DetectorMetrics,
-    pub canny: DetectorMetrics,
+    pub cm: CmResult,  // Changed from canny: DetectorMetrics
     pub log: DetectorMetrics,
     pub frame_time_ms: f32,
     pub last_update: f64,
@@ -404,10 +405,7 @@ pub fn read_multi_readback(
                                 edge_count: buffers.sobel_count,
                                 ..Default::default()
                             },
-                            canny: DetectorMetrics {
-                                edge_count: buffers.canny_count,
-                                ..Default::default()
-                            },
+                            cm: CmResult::default(),  // CM metrics updated separately
                             log: DetectorMetrics {
                                 edge_count: buffers.log_count,
                                 ..Default::default()

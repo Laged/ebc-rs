@@ -7,6 +7,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use super::{AllDetectorMetrics, DetectorMetrics};
 use crate::gpu::EdgeParams;
 use crate::playback::PlaybackState;
+use crate::cm::{CmParams, CmResult};
 
 /// Resource tracking which data file is active
 #[derive(Resource, Default)]
@@ -84,6 +85,7 @@ pub fn draw_playback_controls(
 pub fn draw_edge_controls(
     mut contexts: EguiContexts,
     mut edge_params: ResMut<EdgeParams>,
+    mut cm_params: ResMut<CmParams>,
 ) {
     let ctx = contexts.ctx_mut().expect("Failed to get egui context");
 
@@ -94,7 +96,7 @@ pub fn draw_edge_controls(
             ui.heading("Visibility");
             ui.checkbox(&mut edge_params.show_raw, "Show Raw (Q1)");
             ui.checkbox(&mut edge_params.show_sobel, "Show Sobel (Q2)");
-            ui.checkbox(&mut edge_params.show_canny, "Show Canny (Q3)");
+            ui.checkbox(&mut edge_params.show_canny, "Show CM (Q3)");
             ui.checkbox(&mut edge_params.show_log, "Show LoG (Q4)");
 
             ui.separator();
@@ -104,15 +106,21 @@ pub fn draw_edge_controls(
             ui.add(egui::Slider::new(&mut edge_params.sobel_threshold, 0.0..=6.0)
                 .text("Sobel"));
 
-            // Canny thresholds (binary inputs: magnitude 0-5.66)
-            ui.add(egui::Slider::new(&mut edge_params.canny_low_threshold, 0.0..=3.0)
-                .text("Canny Low"));
-            ui.add(egui::Slider::new(&mut edge_params.canny_high_threshold, 0.0..=6.0)
-                .text("Canny High"));
-
             // LoG threshold (binary inputs: response 0-16)
             ui.add(egui::Slider::new(&mut edge_params.log_threshold, 0.0..=16.0)
                 .text("LoG"));
+
+            ui.separator();
+            ui.heading("CM Settings");
+
+            // CM search resolution
+            let mut n_omega_float = cm_params.n_omega as f32;
+            ui.add(egui::Slider::new(&mut n_omega_float, 16.0..=128.0)
+                .text("Search Resolution")
+                .step_by(16.0));
+            cm_params.n_omega = n_omega_float as u32;
+
+            ui.checkbox(&mut cm_params.enabled, "Enable CM");
 
             ui.separator();
             ui.heading("Filters");
@@ -172,9 +180,9 @@ pub fn draw_metrics_overlay(
         panel_width, panel_height
     );
 
-    // Q3 Bottom-left (CANNY): position at top-right of quadrant (near center)
-    draw_detector_panel(
-        ctx, "CANNY", &metrics.canny,
+    // Q3 Bottom-left (CM): position at top-right of quadrant (near center)
+    draw_cm_panel(
+        ctx, &metrics.cm,
         center_x - panel_width - margin,  // Left of center line
         center_y + margin,                // Below center line
         panel_width, panel_height
@@ -215,6 +223,61 @@ fn draw_detector_panel(
                 metrics.tolerance_f1 * 100.0,
                 metrics.avg_distance
             ));
+        });
+}
+
+fn draw_cm_panel(
+    ctx: &egui::Context,
+    cm_result: &CmResult,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) {
+    egui::Window::new("CM")
+        .fixed_pos([x, y])
+        .fixed_size([width, height])
+        .title_bar(false)
+        .frame(egui::Frame::window(&ctx.style()).fill(egui::Color32::from_rgba_unmultiplied(20, 20, 20, 200)))
+        .show(ctx, |ui| {
+            ui.heading("CM");
+            ui.separator();
+
+            // Display RPM prominently with large font
+            ui.horizontal(|ui| {
+                ui.label("RPM:");
+                ui.label(
+                    egui::RichText::new(format!("{:.0}", cm_result.rpm))
+                        .size(24.0)
+                        .strong()
+                );
+            });
+
+            // Quality indicator based on confidence
+            let quality_text = if cm_result.confidence > 0.8 {
+                "Quality: Excellent"
+            } else if cm_result.confidence > 0.5 {
+                "Quality: Good"
+            } else if cm_result.confidence > 0.2 {
+                "Quality: Fair"
+            } else {
+                "Quality: Poor"
+            };
+
+            let quality_color = if cm_result.confidence > 0.8 {
+                egui::Color32::from_rgb(0, 255, 0)
+            } else if cm_result.confidence > 0.5 {
+                egui::Color32::from_rgb(150, 255, 0)
+            } else if cm_result.confidence > 0.2 {
+                egui::Color32::from_rgb(255, 200, 0)
+            } else {
+                egui::Color32::from_rgb(255, 0, 0)
+            };
+
+            ui.label(egui::RichText::new(quality_text).color(quality_color));
+
+            // Additional details
+            ui.label(format!("ω: {:.2e} rad/μs", cm_result.best_omega));
         });
 }
 
