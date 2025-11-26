@@ -81,5 +81,78 @@
             '';
           };
         });
+
+      # Runnable apps for common workflows
+      # NOTE: These scripts assume you run them from the project root directory
+      apps = forEachSupportedSystem ({ pkgs }:
+        let
+          linuxDeps = with pkgs; [
+            alsa-lib
+            udev
+            libxkbcommon
+            wayland
+            wayland-protocols
+            vulkan-loader
+            xorg.libX11
+            xorg.libXcursor
+            xorg.libXi
+            xorg.libXrandr
+          ];
+          ldPath = pkgs.lib.makeLibraryPath linuxDeps;
+        in {
+          # Generate synthetic test data with ground truth
+          generate_data = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "generate_data" ''
+              export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+              exec cargo run --release --bin generate_synthetic
+            '');
+          };
+
+          # Run hyperparameter optimization on synthetic data
+          optimise_params = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "optimise_params" ''
+              export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+              exec cargo run --release --bin hypersearch -- \
+                --data data/synthetic/fan_test.dat \
+                --output results/synthetic_search.csv \
+                --window-sizes 50,100,200,500 \
+                --thresholds 25,50,100,200,500 \
+                --frames 30
+            '');
+          };
+
+          # Live comparison of all detectors (synthetic data)
+          compare_live = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "compare_live" ''
+              export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+              exec cargo run --release --bin compare_live -- \
+                --config config/detectors.toml \
+                data/synthetic/fan_test.dat
+            '');
+          };
+
+          # Live comparison with real fan data
+          compare_real = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "compare_real" ''
+              export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+              exec cargo run --release --bin compare_live -- \
+                --config config/detectors.toml \
+                data/fan/fan_const_rpm.dat
+            '');
+          };
+
+          # Main visualizer (pass data file as argument)
+          visualize = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "visualize" ''
+              export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+              exec cargo run --release -- "''${1:-data/fan/fan_const_rpm.dat}"
+            '');
+          };
+        });
     };
 }

@@ -54,3 +54,104 @@ The visualizer uses GPU compute shaders to analyze event patterns:
 3. **Angular Histogram**: Detects blade positions via peak finding in polar distribution
 
 See `docs/design/2025-11-23-fan-visualization-accuracy-design.md` for technical details.
+
+## Quick Start with Nix
+
+```bash
+# Enter development shell
+nix develop
+
+# Generate synthetic test data
+nix run .#generate_data
+
+# Optimize detector parameters
+nix run .#optimise_params
+
+# Compare detectors live
+nix run .#compare_live
+```
+
+## Workflow: Generating Synthetic Data
+
+Create synthetic fan data with known ground truth for testing edge detectors:
+
+```bash
+cargo run --bin generate_synthetic
+```
+
+This creates:
+- `data/synthetic/fan_test.dat` - Event data file
+- `data/synthetic/fan_test_truth.json` - Ground truth configuration
+
+The synthetic data simulates a rotating fan with precise blade positions, enabling accurate detector evaluation.
+
+## Workflow: Hyperparameter Optimization
+
+Find optimal edge detector parameters using grid search:
+
+```bash
+cargo run --release --bin hypersearch -- \
+  --data data/synthetic/fan_test.dat \
+  --output results/search.csv \
+  --window-sizes 50,100,200 \
+  --thresholds 50,100,500,1000
+```
+
+**What it does:**
+1. Tests all combinations of detectors (Sobel, Canny, LoG) with specified window sizes and thresholds
+2. Runs parallel evaluation using the `hypertest` subprocess
+3. Saves results to CSV and selects best config per detector
+4. **Auto-exports optimized settings to `config/detectors.toml`**
+
+**Output files:**
+- `results/search.csv` - Full results table
+- `results/best_sobel.json` - Best Sobel parameters
+- `results/best_canny.json` - Best Canny parameters
+- `results/best_log.json` - Best LoG parameters
+- `config/detectors.toml` - Combined config for `compare_live`
+
+## Workflow: Live Detector Comparison
+
+Compare all edge detectors side-by-side with real-time metrics:
+
+```bash
+cargo run --bin compare_live -- data/synthetic/fan_test.dat
+# or with custom config:
+cargo run --bin compare_live -- --config config/detectors.toml data/fan/fan_const_rpm.dat
+```
+
+**The 2x2 grid layout:**
+| Top-Left (RAW) | Top-Right (SOBEL) |
+|----------------|-------------------|
+| Bottom-Left (CANNY) | Bottom-Right (LoG) |
+
+**Controls:**
+- `N` / `P` - Next/Previous data file
+- `Space` - Pause playback
+- Egui panels provide threshold sliders and detector toggles
+
+**Metrics displayed per detector:**
+- Edge count
+- Precision / Recall (if ground truth available)
+- F1 Score
+- Average distance to ground truth
+
+## Available Data
+
+| Path | Description |
+|------|-------------|
+| `data/fan/fan_const_rpm.dat` | Real fan at constant RPM (211 MB) |
+| `data/fan/fan_varying_rpm.dat` | Real fan with varying speed (512 MB) |
+| `data/synthetic/fan_test.dat` | Synthetic fan with ground truth (1.6 MB) |
+| `data/drone_idle/drone_idle.dat` | Stationary drone propellers |
+| `data/drone_moving/drone_moving.dat` | Moving drone |
+
+## Edge Detectors
+
+| Detector | Description | Key Parameter |
+|----------|-------------|---------------|
+| **Sobel** | Gradient-based edge detection using 3x3 kernels | `sobel_threshold` |
+| **Canny** | Multi-stage with hysteresis thresholding | `canny_low/high_threshold` |
+| **LoG** | Laplacian of Gaussian for blob detection | `log_threshold` |
+
+All detectors run as GPU compute shaders in the render graph.

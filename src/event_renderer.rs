@@ -335,7 +335,7 @@ fn ui_system(
         ui.separator();
         ui.label("Sobel Threshold:");
         ui.add(
-            egui::Slider::new(&mut edge_params.threshold, 0.0..=10_000.0)
+            egui::Slider::new(&mut edge_params.sobel_threshold, 0.0..=10_000.0)
                 .text("Sobel Threshold"),
         );
 
