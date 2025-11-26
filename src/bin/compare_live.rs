@@ -99,7 +99,11 @@ fn main() {
 }
 
 /// Enable all detectors and apply config thresholds for compare_live mode
-fn enable_all_detectors(mut edge_params: ResMut<EdgeParams>, config: Res<CompareConfig>) {
+fn enable_all_detectors(
+    mut edge_params: ResMut<EdgeParams>,
+    mut playback_state: ResMut<ebc_rs::playback::PlaybackState>,
+    config: Res<CompareConfig>,
+) {
     // Enable all detector visibility
     edge_params.show_sobel = true;
     edge_params.show_canny = true;
@@ -118,12 +122,19 @@ fn enable_all_detectors(mut edge_params: ResMut<EdgeParams>, config: Res<Compare
 
     edge_params.show_ground_truth = config.display.show_ground_truth;
 
+    // Apply window_size from config (use the largest to ensure all detectors get enough events)
+    let window_size = config.sobel.window_size_us
+        .max(config.canny.window_size_us)
+        .max(config.log.window_size_us);
+    playback_state.window_size = window_size;
+
     info!(
-        "Applied config: sobel_threshold={}, canny=[{},{}], log_threshold={}",
+        "Applied config: sobel_threshold={}, canny=[{},{}], log_threshold={}, window_size={}us",
         edge_params.sobel_threshold,
         edge_params.canny_low_threshold,
         edge_params.canny_high_threshold,
-        edge_params.log_threshold
+        edge_params.log_threshold,
+        window_size
     );
 }
 

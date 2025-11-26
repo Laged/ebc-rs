@@ -3,6 +3,7 @@ use crate::playback::PlaybackState;
 use crate::loader::DatLoader;
 use crate::EventFilePath;
 use crate::ground_truth::GroundTruthConfig;
+use crate::CompareLiveMode;
 use bevy::asset::RenderAssetUsages;
 use bevy::{
     prelude::*,
@@ -422,6 +423,10 @@ impl Plugin for EventRendererPlugin {
             .add_systems(Startup, (load_data, setup_scene).chain())
             .add_systems(Update, crate::playback::playback_system)
             .add_systems(Update, update_material_params)
-            .add_systems(EguiPrimaryContextPass, ui_system);
+            // Skip ui_system when in CompareLiveMode (compare_live has its own UI)
+            .add_systems(
+                EguiPrimaryContextPass,
+                ui_system.run_if(not(resource_exists::<CompareLiveMode>)),
+            );
     }
 }

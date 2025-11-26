@@ -1,10 +1,12 @@
-//! Egui overlay for metrics display.
+//! Egui overlay for metrics display and controls for compare_live.
 
 use bevy::prelude::*;
+use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use super::{AllDetectorMetrics, DetectorMetrics};
 use crate::gpu::EdgeParams;
+use crate::playback::PlaybackState;
 
 /// Resource tracking which data file is active
 #[derive(Resource, Default)]
@@ -31,6 +33,53 @@ impl DataFileState {
     }
 }
 
+/// Draw playback controls
+pub fn draw_playback_controls(
+    mut contexts: EguiContexts,
+    mut playback_state: ResMut<PlaybackState>,
+    diagnostics: Res<DiagnosticsStore>,
+) {
+    let ctx = contexts.ctx_mut().expect("Failed to get egui context");
+
+    egui::Window::new("Playback")
+        .default_pos([10.0, 10.0])
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button(if playback_state.is_playing { "Pause" } else { "Play" }).clicked() {
+                    playback_state.is_playing = !playback_state.is_playing;
+                }
+                ui.checkbox(&mut playback_state.looping, "Loop");
+            });
+
+            let max_time = playback_state.max_timestamp as f32;
+            ui.add(
+                egui::Slider::new(&mut playback_state.current_time, 0.0..=max_time)
+                    .text("Time (μs)"),
+            );
+
+            ui.add(
+                egui::Slider::new(&mut playback_state.window_size, 1.0..=100_000.0)
+                    .text("Window (μs)")
+                    .logarithmic(true),
+            );
+
+            ui.add(
+                egui::Slider::new(&mut playback_state.playback_speed, 0.01..=100.0)
+                    .text("Speed (×)")
+                    .logarithmic(true),
+            );
+
+            ui.label(format!("Time: {:.2} ms", playback_state.current_time / 1000.0));
+            ui.label(format!("Window: {:.2} ms", playback_state.window_size / 1000.0));
+
+            if let Some(fps) = diagnostics.get(&FrameTimeDiagnosticsPlugin::FPS) {
+                if let Some(value) = fps.smoothed() {
+                    ui.label(format!("FPS: {:.1}", value));
+                }
+            }
+        });
+}
+
 /// Draw edge detection parameter controls
 pub fn draw_edge_controls(
     mut contexts: EguiContexts,
@@ -38,8 +87,8 @@ pub fn draw_edge_controls(
 ) {
     let ctx = contexts.ctx_mut().expect("Failed to get egui context");
 
-    egui::Window::new("Edge Detection")
-        .default_pos([10.0, 100.0])
+    egui::Window::new("Detector Settings")
+        .default_pos([10.0, 250.0])
         .show(ctx, |ui| {
             // Detector visibility toggles
             ui.heading("Visibility");
@@ -191,8 +240,9 @@ impl Plugin for CompareUiPlugin {
             // Note: AllDetectorMetrics is initialized by CompositeRenderPlugin
             // Use EguiPrimaryContextPass schedule for egui systems
             .add_systems(EguiPrimaryContextPass, (
-                draw_metrics_overlay,
+                draw_playback_controls,
                 draw_edge_controls,
+                draw_metrics_overlay,
             ))
             .add_systems(Update, handle_file_input);
     }
