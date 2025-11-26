@@ -341,25 +341,25 @@ fn ui_system(
         ui.separator();
         ui.label("Sobel Threshold:");
         ui.add(
-            egui::Slider::new(&mut edge_params.sobel_threshold, 0.0..=10_000.0)
+            egui::Slider::new(&mut edge_params.sobel_threshold, 0.0..=6.0)
                 .text("Sobel Threshold"),
         );
 
         ui.separator();
         ui.label("Canny Thresholds:");
         ui.add(
-            egui::Slider::new(&mut edge_params.canny_low_threshold, 0.0..=5_000.0)
+            egui::Slider::new(&mut edge_params.canny_low_threshold, 0.0..=3.0)
                 .text("Canny Low"),
         );
         ui.add(
-            egui::Slider::new(&mut edge_params.canny_high_threshold, 0.0..=10_000.0)
+            egui::Slider::new(&mut edge_params.canny_high_threshold, 0.0..=6.0)
                 .text("Canny High"),
         );
 
         ui.separator();
         ui.label("LoG Threshold:");
         ui.add(
-            egui::Slider::new(&mut edge_params.log_threshold, 0.0..=10_000.0)
+            egui::Slider::new(&mut edge_params.log_threshold, 0.0..=16.0)
                 .text("LoG Threshold"),
         );
 

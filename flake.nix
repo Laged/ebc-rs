@@ -74,8 +74,8 @@
             exec cargo run --release --bin hypersearch -- \
               --data data/synthetic/fan_test.dat \
               --output results/synthetic_search.csv \
-              --window-sizes 50,100,200,500 \
-              --thresholds 25,50,100,200,500 \
+              --window-sizes 500,1000,2000,5000 \
+              --thresholds 0.5,1.0,2.0,4.0 \
               --frames 30 "$@"
           '';
           compare_live_script = pkgs.writeShellScriptBin "compare_live" ''
@@ -191,8 +191,8 @@
               exec cargo run --release --bin hypersearch -- \
                 --data data/synthetic/fan_test.dat \
                 --output results/synthetic_search.csv \
-                --window-sizes 50,100,200,500 \
-                --thresholds 25,50,100,200,500 \
+                --window-sizes 500,1000,2000,5000 \
+                --thresholds 0.5,1.0,2.0,4.0 \
                 --frames 30
             '');
           };

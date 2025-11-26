@@ -61,6 +61,59 @@ impl GroundTruthConfig {
         self.rpm * 2.0 * PI / 60.0
     }
 
+    /// Check if a point at a specific time is on an edge.
+    /// Returns the distance in pixels to the nearest edge, or None if outside radius range.
+    pub fn distance_to_edge(&self, x: f32, y: f32, time_us: f32) -> Option<f32> {
+        let dx = x - self.center_x;
+        let dy = y - self.center_y;
+        let r = (dx * dx + dy * dy).sqrt();
+
+        // Skip points outside blade radius range
+        if r < self.radius_min || r > self.radius_max {
+            return None;
+        }
+
+        let theta = dy.atan2(dx);
+        let time_secs = time_us / 1_000_000.0;
+        let base_angle = self.angular_velocity() * time_secs;
+        let blade_spacing = 2.0 * PI / self.blade_count as f32;
+
+        // Logarithmic spiral offset
+        let sweep_angle = self.sweep_k * (r / self.radius_min).ln();
+
+        // Blade width at this radius
+        let r_norm = (r - self.radius_min) / (self.radius_max - self.radius_min);
+        let blade_width = self.width_root_rad + (self.width_tip_rad - self.width_root_rad) * r_norm;
+        let half_width = blade_width * 0.5;
+
+        // Find minimum distance to any blade edge
+        let mut min_dist_px = f32::MAX;
+
+        for blade in 0..self.blade_count {
+            let blade_center = base_angle + (blade as f32 * blade_spacing) + sweep_angle;
+
+            // Normalize angle difference to [-PI, PI]
+            let mut angle_diff = theta - blade_center;
+            while angle_diff > PI { angle_diff -= 2.0 * PI; }
+            while angle_diff < -PI { angle_diff += 2.0 * PI; }
+
+            // Distance to leading and trailing edges in pixels
+            let dist_to_leading = (angle_diff - half_width).abs() * r;
+            let dist_to_trailing = (angle_diff + half_width).abs() * r;
+
+            min_dist_px = min_dist_px.min(dist_to_leading.min(dist_to_trailing));
+        }
+
+        Some(min_dist_px)
+    }
+
+    /// Check if a point at a specific time is on an edge (within threshold).
+    pub fn is_edge(&self, x: f32, y: f32, time_us: f32) -> bool {
+        self.distance_to_edge(x, y, time_us)
+            .map(|d| d <= self.edge_thickness_px)
+            .unwrap_or(false)
+    }
+
     /// Try to load ground truth config from JSON sidecar file.
     /// Returns None if file doesn't exist or isn't valid ground truth JSON.
     pub fn load_from_sidecar(dat_path: &Path) -> Option<Self> {
@@ -82,6 +135,38 @@ impl GroundTruthConfig {
         config.enabled = true;
 
         Some(config)
+    }
+
+    /// Generate ground truth edge mask averaged over a time window.
+    /// Returns a boolean mask where true = edge pixel at any point in the window.
+    ///
+    /// For rotating objects, this accounts for motion blur during the window.
+    pub fn generate_edge_mask_window(
+        &self,
+        window_start_us: f32,
+        window_end_us: f32,
+        width: u32,
+        height: u32,
+        num_samples: u32,
+    ) -> Vec<bool> {
+        let mut mask = vec![false; (width * height) as usize];
+
+        // Sample multiple time points across the window
+        for sample in 0..num_samples {
+            let t = window_start_us
+                + (window_end_us - window_start_us) * (sample as f32 / num_samples as f32);
+
+            let sample_mask = self.generate_edge_mask(t, width, height);
+
+            // OR together all samples
+            for (i, &is_edge) in sample_mask.iter().enumerate() {
+                if is_edge {
+                    mask[i] = true;
+                }
+            }
+        }
+
+        mask
     }
 
     /// Generate ground truth edge mask for a given timestamp.
@@ -129,16 +214,14 @@ impl GroundTruthConfig {
                     while angle_diff > PI { angle_diff -= 2.0 * PI; }
                     while angle_diff < -PI { angle_diff += 2.0 * PI; }
 
-                    // Leading edge check (front of blade)
-                    let leading_edge_angle = half_width;
-                    let leading_dist = (angle_diff - leading_edge_angle).abs();
+                    // Check distance to leading edge (at +half_width)
+                    let dist_to_leading = (angle_diff - half_width).abs();
+                    // Check distance to trailing edge (at -half_width)
+                    let dist_to_trailing = (angle_diff + half_width).abs();
 
-                    // Trailing edge check (back of blade)
-                    let trailing_edge_angle = -half_width;
-                    let trailing_dist = (angle_diff - trailing_edge_angle).abs();
-
-                    // Pixel is an edge if close to either blade boundary
-                    if leading_dist < edge_thickness_rad || trailing_dist < edge_thickness_rad {
+                    // Pixel is an edge if within thickness of either blade boundary
+                    // This matches the synthesis which generates events AT the blade edges
+                    if dist_to_leading < edge_thickness_rad || dist_to_trailing < edge_thickness_rad {
                         let idx = (y * width + x) as usize;
                         mask[idx] = true;
                         break; // No need to check other blades
@@ -208,7 +291,7 @@ impl GroundTruthMetrics {
         let iou = if tp + fp + fn_ > 0 { tp as f32 / (tp + fp + fn_) as f32 } else { 0.0 };
 
         // Extract pixel coordinates
-        let height = detected.len() as u32 / width;
+        let _height = detected.len() as u32 / width;
         let mut detected_pixels: Vec<(i32, i32)> = Vec::new();
         let mut gt_pixels: Vec<(i32, i32)> = Vec::new();
 

@@ -64,9 +64,9 @@ impl Default for HyperConfig {
         Self {
             detector: "sobel".to_string(),
             window_size_us: 100.0,
-            threshold: 1000.0,
-            canny_low: 50.0,
-            canny_high: 150.0,
+            threshold: 1.0,  // Binary edge detection: magnitude 0-5.66
+            canny_low: 0.5,  // Binary edge detection: magnitude 0-5.66
+            canny_high: 2.0,
             filter_dead_pixels: true,
             filter_density: false,
             filter_temporal: false,

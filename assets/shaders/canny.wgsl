@@ -76,108 +76,62 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    // Step 1: Apply Gaussian blur to 5x5 neighborhood
+    // Step 1: Load 3x3 neighborhood using binary event presence
     // Filtered texture packs: (timestamp << 1) | polarity (or 0 if filtered out)
-    var blurred = 0.0;
-    var kernel_idx = 0u;
-
-    for (var dy = -2; dy <= 2; dy++) {
-        for (var dx = -2; dx <= 2; dx++) {
-            let pos = coords + vec2<i32>(dx, dy);
-            let packed = textureLoad(filtered_texture, pos, 0).r;
-            let timestamp = f32(packed >> 1u);
-
-            blurred += timestamp * GAUSSIAN_KERNEL[kernel_idx];
-            kernel_idx++;
-        }
-    }
-
-    // Step 2: Load 3x3 neighborhood around blurred center for Sobel
-    var neighborhood: array<f32, 9>;
+    var has_event: array<f32, 9>;
     var idx = 0u;
 
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
             let pos = coords + vec2<i32>(dx, dy);
             let packed = textureLoad(filtered_texture, pos, 0).r;
-            let timestamp = f32(packed >> 1u);
-            neighborhood[idx] = timestamp;
+            // Binary: 1.0 if event present, 0.0 if not
+            has_event[idx] = select(0.0, 1.0, packed > 0u);
             idx++;
         }
     }
 
-    // Step 3: Compute Sobel gradients (Gx, Gy)
-    let gx = -neighborhood[0] + neighborhood[2]
-             - 2.0 * neighborhood[3] + 2.0 * neighborhood[5]
-             - neighborhood[6] + neighborhood[8];
+    // Check if center pixel has an event
+    if (has_event[4] < 0.5) {
+        textureStore(canny_output, coords, vec4<f32>(0.0));
+        return;
+    }
 
-    let gy = -neighborhood[0] - 2.0 * neighborhood[1] - neighborhood[2]
-             + neighborhood[6] + 2.0 * neighborhood[7] + neighborhood[8];
+    // Step 2: Compute Sobel gradients (Gx, Gy) on binary event presence
+    let gx = -has_event[0] + has_event[2]
+             - 2.0 * has_event[3] + 2.0 * has_event[5]
+             - has_event[6] + has_event[8];
+
+    let gy = -has_event[0] - 2.0 * has_event[1] - has_event[2]
+             + has_event[6] + 2.0 * has_event[7] + has_event[8];
 
     // Step 4: Compute magnitude and direction
     let magnitude = sqrt(gx * gx + gy * gy);
     let direction = atan2(gy, gx);
     let dir_quantized = quantize_direction(direction);
 
-    // Step 5: Non-maximum suppression
-    // Compare magnitude with neighbors in gradient direction
+    // Step 5: Non-maximum suppression using binary event presence
+    // Compare current magnitude with neighbors in gradient direction
     var neighbor1_mag = 0.0;
     var neighbor2_mag = 0.0;
 
-    // Load neighbors based on quantized direction
+    // Use binary event presence for NMS
     if (dir_quantized == 0u) {
         // 0 deg (horizontal): compare with left and right
-        let left_pos = coords + vec2<i32>(-1, 0);
-        let right_pos = coords + vec2<i32>(1, 0);
-
-        let left_packed = textureLoad(filtered_texture, left_pos, 0).r;
-        let right_packed = textureLoad(filtered_texture, right_pos, 0).r;
-
-        let left_ts = f32(left_packed >> 1u);
-        let right_ts = f32(right_packed >> 1u);
-
-        // Approximate gradient magnitude for neighbors
-        neighbor1_mag = abs(left_ts - neighborhood[4]);
-        neighbor2_mag = abs(right_ts - neighborhood[4]);
+        neighbor1_mag = abs(has_event[3] - has_event[4]); // left - center
+        neighbor2_mag = abs(has_event[5] - has_event[4]); // right - center
     } else if (dir_quantized == 1u) {
         // 45 deg (diagonal /): compare with top-right and bottom-left
-        let tr_pos = coords + vec2<i32>(1, -1);
-        let bl_pos = coords + vec2<i32>(-1, 1);
-
-        let tr_packed = textureLoad(filtered_texture, tr_pos, 0).r;
-        let bl_packed = textureLoad(filtered_texture, bl_pos, 0).r;
-
-        let tr_ts = f32(tr_packed >> 1u);
-        let bl_ts = f32(bl_packed >> 1u);
-
-        neighbor1_mag = abs(tr_ts - neighborhood[4]);
-        neighbor2_mag = abs(bl_ts - neighborhood[4]);
+        neighbor1_mag = abs(has_event[2] - has_event[4]); // top-right - center
+        neighbor2_mag = abs(has_event[6] - has_event[4]); // bottom-left - center
     } else if (dir_quantized == 2u) {
         // 90 deg (vertical): compare with top and bottom
-        let top_pos = coords + vec2<i32>(0, -1);
-        let bottom_pos = coords + vec2<i32>(0, 1);
-
-        let top_packed = textureLoad(filtered_texture, top_pos, 0).r;
-        let bottom_packed = textureLoad(filtered_texture, bottom_pos, 0).r;
-
-        let top_ts = f32(top_packed >> 1u);
-        let bottom_ts = f32(bottom_packed >> 1u);
-
-        neighbor1_mag = abs(top_ts - neighborhood[4]);
-        neighbor2_mag = abs(bottom_ts - neighborhood[4]);
+        neighbor1_mag = abs(has_event[1] - has_event[4]); // top - center
+        neighbor2_mag = abs(has_event[7] - has_event[4]); // bottom - center
     } else {
         // 135 deg (diagonal \): compare with top-left and bottom-right
-        let tl_pos = coords + vec2<i32>(-1, -1);
-        let br_pos = coords + vec2<i32>(1, 1);
-
-        let tl_packed = textureLoad(filtered_texture, tl_pos, 0).r;
-        let br_packed = textureLoad(filtered_texture, br_pos, 0).r;
-
-        let tl_ts = f32(tl_packed >> 1u);
-        let br_ts = f32(br_packed >> 1u);
-
-        neighbor1_mag = abs(tl_ts - neighborhood[4]);
-        neighbor2_mag = abs(br_ts - neighborhood[4]);
+        neighbor1_mag = abs(has_event[0] - has_event[4]); // top-left - center
+        neighbor2_mag = abs(has_event[8] - has_event[4]); // bottom-right - center
     }
 
     // Suppress if not a local maximum
@@ -187,6 +141,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     }
 
     // Step 6: Double threshold (simplified hysteresis)
+    // With binary inputs, magnitude range is 0-5.66
+    // Thresholds are used directly - typical values: low=0.5, high=2.0
     // Strong edges = 1.0, weak edges = 0.5, non-edges = 0.0
     var edge_value = 0.0;
 

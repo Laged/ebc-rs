@@ -275,10 +275,20 @@ fn run_hypertest(
 
                 // Compute ground truth metrics if available
                 if let Some(ref gt_config) = ground_truth {
-                    let gt_mask = gt_config.generate_edge_mask(
+                    // Use windowed ground truth that accounts for fan rotation during the window
+                    // Sample enough points to capture motion (at least one per degree of rotation)
+                    let angular_velocity = gt_config.angular_velocity();
+                    let window_duration_s = config.window_size_us / 1_000_000.0;
+                    let rotation_degrees = angular_velocity * window_duration_s * 180.0 / std::f32::consts::PI;
+                    let num_samples = (rotation_degrees.ceil() as u32).max(10).min(360);
+
+                    let window_start = current_time - config.window_size_us;
+                    let gt_mask = gt_config.generate_edge_mask_window(
+                        window_start,
                         current_time,
                         edge_data.width,
                         edge_data.height,
+                        num_samples,
                     );
                     // Use 3px tolerance for distance-based matching
                     let gt_result = GroundTruthMetrics::compute(

@@ -80,17 +80,21 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         // Check if pixel angle is within blade
         let angle_diff = wrap_angle(theta - blade_center);
 
+        // Check if interior pixel (inside blade)
         if (abs(angle_diff) < half_width) {
             // Interior pixel - G channel
             output.g = 1.0;
+        }
 
-            // Edge pixel - within threshold of boundary
-            // Check both leading and trailing edges
-            let dist_to_edge = abs(abs(angle_diff) - half_width);
-            if (dist_to_edge < edge_angular_thickness) {
-                // Edge pixel - R channel
-                output.r = 1.0;
-            }
+        // Check if edge pixel - within thickness of either blade boundary
+        // This matches the synthesis which generates events AT the blade edges
+        // Leading edge at +half_width, trailing edge at -half_width
+        let dist_to_leading = abs(angle_diff - half_width);
+        let dist_to_trailing = abs(angle_diff + half_width);
+
+        if (dist_to_leading < edge_angular_thickness || dist_to_trailing < edge_angular_thickness) {
+            // Edge pixel - R channel
+            output.r = 1.0;
         }
     }
 

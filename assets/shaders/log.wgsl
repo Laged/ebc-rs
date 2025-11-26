@@ -45,21 +45,31 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    // Apply LoG kernel to detect edges
-    // LoG detects regions of rapid intensity change (second derivative)
+    // Load 5x5 neighborhood using binary event presence
     // Filtered texture packs: (timestamp << 1) | polarity (or 0 if filtered out)
-    var log_response = 0.0;
+    var has_event: array<f32, 25>;
     var kernel_idx = 0u;
 
     for (var dy = -2; dy <= 2; dy++) {
         for (var dx = -2; dx <= 2; dx++) {
             let pos = coords + vec2<i32>(dx, dy);
             let packed = textureLoad(filtered_texture, pos, 0).r;
-            let timestamp = f32(packed >> 1u);
-
-            log_response += timestamp * LOG_KERNEL[kernel_idx];
+            // Binary: 1.0 if event present, 0.0 if not
+            has_event[kernel_idx] = select(0.0, 1.0, packed > 0u);
             kernel_idx++;
         }
+    }
+
+    // Check if center pixel has an event (index 12 in 5x5 grid)
+    if (has_event[12] < 0.5) {
+        textureStore(log_output, coords, vec4<f32>(0.0));
+        return;
+    }
+
+    // Apply LoG kernel to binary event presence
+    var log_response = 0.0;
+    for (var i = 0u; i < 25u; i++) {
+        log_response += has_event[i] * LOG_KERNEL[i];
     }
 
     // Output magnitude of LoG response
@@ -67,6 +77,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     // Higher magnitude = stronger edge
     let edge_strength = abs(log_response);
 
+    // With binary inputs, LoG kernel produces values in roughly 0-16 range (center weight is 16)
+    // Threshold is used directly - typical values: 1.0 (weak edges), 8.0 (strong edges)
     // Threshold and output binary edge map
     let edge_value = select(0.0, 1.0, edge_strength > params.threshold);
     textureStore(log_output, coords, vec4<f32>(edge_value));

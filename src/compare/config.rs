@@ -15,7 +15,7 @@ pub struct DetectorConfig {
     pub filter_dead_pixels: bool,
 }
 
-fn default_threshold() -> f32 { 50.0 }
+fn default_threshold() -> f32 { 1.0 }  // Binary edge detection: magnitude 0-5.66 (Sobel), 0-16 (LoG)
 fn default_window_size() -> f32 { 100000.0 }
 fn default_true() -> bool { true }
 
@@ -42,8 +42,8 @@ pub struct CannyConfig {
     pub filter_dead_pixels: bool,
 }
 
-fn default_canny_low() -> f32 { 50.0 }
-fn default_canny_high() -> f32 { 150.0 }
+fn default_canny_low() -> f32 { 0.5 }  // Binary edge detection: magnitude 0-5.66
+fn default_canny_high() -> f32 { 2.0 }
 
 impl Default for CannyConfig {
     fn default() -> Self {

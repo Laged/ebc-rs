@@ -121,10 +121,10 @@ pub fn prepare_sobel(
 
     // Create bind group if textures are ready
     // Now uses FilteredSurfaceImage instead of SurfaceImage (pre-filtered by preprocess stage)
-    if let (Some(filtered_gpu), Some(sobel_gpu)) = (
-        gpu_images.get(&filtered_image.handle),
-        gpu_images.get(&sobel_image.handle),
-    ) {
+    let filtered_gpu = gpu_images.get(&filtered_image.handle);
+    let sobel_gpu = gpu_images.get(&sobel_image.handle);
+
+    if let (Some(filtered_gpu), Some(sobel_gpu)) = (filtered_gpu, sobel_gpu) {
         let bind_group = render_device.create_bind_group(
             Some("Sobel Bind Group"),
             &pipeline.layout,

@@ -152,11 +152,11 @@ impl Default for EdgeParams {
             show_log: false,
             show_raw: false,
             show_ground_truth: false,
-            sobel_threshold: 1000.0,
-            threshold: 1000.0, // Keep for backwards compatibility
-            canny_low_threshold: 50.0,
-            canny_high_threshold: 150.0,
-            log_threshold: 10.0,
+            sobel_threshold: 1.0,  // Binary edge detection: magnitude 0-5.66
+            threshold: 1.0, // Keep for backwards compatibility
+            canny_low_threshold: 0.5,  // Binary edge detection: magnitude 0-5.66
+            canny_high_threshold: 2.0,
+            log_threshold: 2.0,  // Binary edge detection: response 0-16
             filter_bidirectional: false,
             bidirectional_ratio: 0.3,
         }

@@ -100,18 +100,18 @@ pub fn draw_edge_controls(
             ui.separator();
             ui.heading("Thresholds");
 
-            // Sobel threshold
-            ui.add(egui::Slider::new(&mut edge_params.sobel_threshold, 0.0..=10_000.0)
+            // Sobel threshold (binary inputs: magnitude 0-5.66)
+            ui.add(egui::Slider::new(&mut edge_params.sobel_threshold, 0.0..=6.0)
                 .text("Sobel"));
 
-            // Canny thresholds
-            ui.add(egui::Slider::new(&mut edge_params.canny_low_threshold, 0.0..=5_000.0)
+            // Canny thresholds (binary inputs: magnitude 0-5.66)
+            ui.add(egui::Slider::new(&mut edge_params.canny_low_threshold, 0.0..=3.0)
                 .text("Canny Low"));
-            ui.add(egui::Slider::new(&mut edge_params.canny_high_threshold, 0.0..=10_000.0)
+            ui.add(egui::Slider::new(&mut edge_params.canny_high_threshold, 0.0..=6.0)
                 .text("Canny High"));
 
-            // LoG threshold
-            ui.add(egui::Slider::new(&mut edge_params.log_threshold, 0.0..=10_000.0)
+            // LoG threshold (binary inputs: response 0-16)
+            ui.add(egui::Slider::new(&mut edge_params.log_threshold, 0.0..=16.0)
                 .text("LoG"));
 
             ui.separator();

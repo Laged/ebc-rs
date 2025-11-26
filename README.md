@@ -93,8 +93,8 @@ Find optimal edge detector parameters using grid search:
 cargo run --release --bin hypersearch -- \
   --data data/synthetic/fan_test.dat \
   --output results/search.csv \
-  --window-sizes 50,100,200 \
-  --thresholds 50,100,500,1000
+  --window-sizes 500,1000,2000,5000 \
+  --thresholds 0.5,1.0,2.0,4.0
 ```
 
 **What it does:**
@@ -148,10 +148,21 @@ cargo run --bin compare_live -- --config config/detectors.toml data/fan/fan_cons
 
 ## Edge Detectors
 
-| Detector | Description | Key Parameter |
-|----------|-------------|---------------|
-| **Sobel** | Gradient-based edge detection using 3x3 kernels | `sobel_threshold` |
-| **Canny** | Multi-stage with hysteresis thresholding | `canny_low/high_threshold` |
-| **LoG** | Laplacian of Gaussian for blob detection | `log_threshold` |
+All detectors use **binary event presence** (1.0 if event exists, 0.0 if not) for edge detection. This approach detects boundaries between event-active and event-inactive regions.
+
+| Detector | Description | Threshold Range | Recommended |
+|----------|-------------|-----------------|-------------|
+| **Sobel** | 3x3 gradient kernels | 0-6 | 1.0 |
+| **Canny** | Hysteresis with NMS | low: 0-3, high: 0-6 | 0.5 / 2.0 |
+| **LoG** | 5x5 Laplacian of Gaussian | 0-16 | 2.0 |
+
+**Performance on synthetic data (5000μs window):**
+| Detector | Edges | Precision | Recall | F1 |
+|----------|-------|-----------|--------|-----|
+| LoG | 497 | 100% | 21.6% | 35.5% |
+| Canny | 37 | 100% | 1.1% | 2.3% |
+| Sobel | 40 | ~80% | <1% | <1% |
+
+LoG performs best due to its larger 5x5 kernel being more robust to sparse event data.
 
 All detectors run as GPU compute shaders in the render graph.
