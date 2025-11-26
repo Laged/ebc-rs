@@ -4,8 +4,10 @@
 //! Replaces Canny edge detector with CM-based motion compensation.
 
 mod resources;
+mod pipeline;
 
 pub use resources::*;
+pub use pipeline::*;
 
 use bevy::prelude::*;
 
