@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use super::{AllDetectorMetrics, DetectorMetrics};
+use crate::gpu::EdgeParams;
 
 /// Resource tracking which data file is active
 #[derive(Resource, Default)]
@@ -28,6 +29,48 @@ impl DataFileState {
             self.current_index = (self.current_index + self.files.len() - 1) % self.files.len();
         }
     }
+}
+
+/// Draw edge detection parameter controls
+pub fn draw_edge_controls(
+    mut contexts: EguiContexts,
+    mut edge_params: ResMut<EdgeParams>,
+) {
+    let ctx = contexts.ctx_mut().expect("Failed to get egui context");
+
+    egui::Window::new("Edge Detection")
+        .default_pos([10.0, 100.0])
+        .show(ctx, |ui| {
+            // Detector visibility toggles
+            ui.heading("Visibility");
+            ui.checkbox(&mut edge_params.show_raw, "Show Raw (Q1)");
+            ui.checkbox(&mut edge_params.show_sobel, "Show Sobel (Q2)");
+            ui.checkbox(&mut edge_params.show_canny, "Show Canny (Q3)");
+            ui.checkbox(&mut edge_params.show_log, "Show LoG (Q4)");
+
+            ui.separator();
+            ui.heading("Thresholds");
+
+            // Sobel threshold
+            ui.add(egui::Slider::new(&mut edge_params.sobel_threshold, 0.0..=10_000.0)
+                .text("Sobel"));
+
+            // Canny thresholds
+            ui.add(egui::Slider::new(&mut edge_params.canny_low_threshold, 0.0..=5_000.0)
+                .text("Canny Low"));
+            ui.add(egui::Slider::new(&mut edge_params.canny_high_threshold, 0.0..=10_000.0)
+                .text("Canny High"));
+
+            // LoG threshold
+            ui.add(egui::Slider::new(&mut edge_params.log_threshold, 0.0..=10_000.0)
+                .text("LoG"));
+
+            ui.separator();
+            ui.heading("Filters");
+            ui.checkbox(&mut edge_params.filter_dead_pixels, "Filter Dead Pixels");
+            ui.checkbox(&mut edge_params.filter_density, "Filter Low Density");
+            ui.checkbox(&mut edge_params.filter_bidirectional, "Bidirectional");
+        });
 }
 
 /// Draw metrics overlay for compare_live
@@ -147,7 +190,10 @@ impl Plugin for CompareUiPlugin {
         app.init_resource::<DataFileState>()
             // Note: AllDetectorMetrics is initialized by CompositeRenderPlugin
             // Use EguiPrimaryContextPass schedule for egui systems
-            .add_systems(EguiPrimaryContextPass, draw_metrics_overlay)
+            .add_systems(EguiPrimaryContextPass, (
+                draw_metrics_overlay,
+                draw_edge_controls,
+            ))
             .add_systems(Update, handle_file_input);
     }
 }
