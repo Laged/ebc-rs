@@ -61,16 +61,58 @@
             ] ++ [ pkgs.libiconv ]
           else
             [ ];
+        in
+        let
+          ldPath = pkgs.lib.makeLibraryPath linuxDeps;
+          # Wrapper scripts that can be added to PATH
+          generate_data_script = pkgs.writeShellScriptBin "generate_data" ''
+            export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+            exec cargo run --release --bin generate_synthetic "$@"
+          '';
+          optimise_params_script = pkgs.writeShellScriptBin "optimise_params" ''
+            export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+            exec cargo run --release --bin hypersearch -- \
+              --data data/synthetic/fan_test.dat \
+              --output results/synthetic_search.csv \
+              --window-sizes 50,100,200,500 \
+              --thresholds 25,50,100,200,500 \
+              --frames 30 "$@"
+          '';
+          compare_live_script = pkgs.writeShellScriptBin "compare_live" ''
+            export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+            exec cargo run --release --bin compare_live -- \
+              --config config/detectors.toml \
+              data/synthetic/fan_test.dat "$@"
+          '';
+          compare_real_script = pkgs.writeShellScriptBin "compare_real" ''
+            export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+            exec cargo run --release --bin compare_live -- \
+              --config config/detectors.toml \
+              data/fan/fan_const_rpm.dat "$@"
+          '';
+          visualize_script = pkgs.writeShellScriptBin "visualize" ''
+            export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+            exec cargo run --release -- "''${1:-data/fan/fan_const_rpm.dat}"
+          '';
+          workflowScripts = if pkgs.stdenv.isLinux then [
+            generate_data_script
+            optimise_params_script
+            compare_live_script
+            compare_real_script
+            visualize_script
+          ] else [ ];
         in {
           default = pkgs.mkShell {
             packages = commonDeps
-              ++ (if pkgs.stdenv.isLinux then linuxDeps else [ ]) ++ darwinDeps;
+              ++ (if pkgs.stdenv.isLinux then linuxDeps else [ ])
+              ++ darwinDeps
+              ++ workflowScripts;
 
             env = {
               RUST_SRC_PATH =
                 "${pkgs.rustToolchain}/lib/rustlib/src/rust/library";
               LD_LIBRARY_PATH = if pkgs.stdenv.isLinux then
-                "${pkgs.lib.makeLibraryPath linuxDeps}:$LD_LIBRARY_PATH"
+                "${ldPath}:$LD_LIBRARY_PATH"
               else
                 "";
             };
@@ -78,6 +120,13 @@
             shellHook = ''
               echo "Event-based detection environment loaded"
               echo "Rust: $(rustc --version)"
+              echo ""
+              echo "Available commands:"
+              echo "  generate_data   - Generate synthetic test data"
+              echo "  optimise_params - Run hyperparameter optimization"
+              echo "  compare_live    - Compare detectors (synthetic)"
+              echo "  compare_real    - Compare detectors (real fan data)"
+              echo "  visualize       - Main visualizer"
             '';
           };
         });
