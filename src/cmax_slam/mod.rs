@@ -25,7 +25,8 @@ pub struct CmaxSlamPlugin;
 impl Plugin for CmaxSlamPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CmaxSlamParams>()
-           .init_resource::<CmaxSlamState>();
+           .init_resource::<CmaxSlamState>()
+           .add_systems(Update, update_cmax_slam_omega);
     }
 
     fn finish(&self, app: &mut App) {
