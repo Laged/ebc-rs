@@ -16,9 +16,9 @@ struct CmaxSlamParams {
     window_start: u32,       // 24-27
     window_end: u32,         // 28-31
     event_count: u32,        // 32-35
-    _pad1: vec3<u32>,        // 36-47 - alignment padding
-    _padding: vec3<u32>,     // 48-59 - actual vec3 field
-    _pad2: u32,              // 60-63 - trailing alignment
+    _pad0: u32,              // 36-39
+    _pad1: u32,              // 40-43
+    _pad2: u32,              // 44-47
 }
 
 struct ContrastResult {

@@ -51,9 +51,8 @@ pub struct CmaxSlamState {
 }
 
 /// GPU-compatible CMax-SLAM parameters
-/// Note: WGSL alignment rules require vec3<u32> to be 16-byte aligned
-/// Layout: 9 x f32/u32 = 36 bytes, then padding to 48 for vec3 alignment,
-/// then vec3 = 12 bytes + 4 padding = 64 total
+/// Layout: 9 useful fields (36 bytes) + 3 padding (12 bytes) = 48 bytes total
+/// This matches WGSL struct exactly (no vec3 alignment issues)
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct GpuCmaxSlamParams {
@@ -75,12 +74,8 @@ pub struct GpuCmaxSlamParams {
     pub window_end: u32,      // 28-31
     /// Total event count
     pub event_count: u32,     // 32-35
-    /// Padding to align vec3 at offset 48
-    pub _pad1: [u32; 3],      // 36-47
-    /// Padding for WGSL vec3<u32> alignment
-    pub _padding: [u32; 3],   // 48-59
-    /// Trailing alignment for vec3
-    pub _pad2: u32,           // 60-63
+    /// Padding to 48 bytes (multiple of 16 for GPU alignment)
+    pub _pad: [u32; 3],       // 36-47
 }
 
 /// GPU result buffer layout
