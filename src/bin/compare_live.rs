@@ -17,6 +17,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 use ebc_rs::cm::CmPlugin;
+use ebc_rs::cmax_slam::CmaxSlamPlugin;
 use ebc_rs::compare::{
     CompareConfig, CompareUiPlugin, CompositeImage, CompositeRenderPlugin, DataFileState,
 };
@@ -86,6 +87,7 @@ fn main() {
         }))
         // Note: EguiPlugin is added by EdgeDetectionPlugin (via EventRendererPlugin)
         .add_plugins(EdgeDetectionPlugin)
+        .add_plugins(CmaxSlamPlugin)
         .add_plugins(CmPlugin)
         .init_resource::<CmImage>()
         .add_plugins(bevy::render::extract_resource::ExtractResourcePlugin::<CmImage>::default())
