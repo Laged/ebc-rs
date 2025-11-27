@@ -8,6 +8,7 @@ use super::{AllDetectorMetrics, DetectorMetrics};
 use crate::gpu::EdgeParams;
 use crate::playback::PlaybackState;
 use crate::cm::{CmParams, CmResult};
+use crate::cmax_slam::{CmaxSlamParams, CmaxSlamState};
 
 /// Resource tracking which data file is active
 #[derive(Resource, Default)]
@@ -86,6 +87,8 @@ pub fn draw_edge_controls(
     mut contexts: EguiContexts,
     mut edge_params: ResMut<EdgeParams>,
     mut cm_params: ResMut<CmParams>,
+    mut cmax_params: Option<ResMut<CmaxSlamParams>>,
+    cmax_state: Option<Res<CmaxSlamState>>,
 ) {
     let ctx = contexts.ctx_mut().expect("Failed to get egui context");
 
@@ -127,6 +130,29 @@ pub fn draw_edge_controls(
             ui.checkbox(&mut edge_params.filter_dead_pixels, "Filter Dead Pixels");
             ui.checkbox(&mut edge_params.filter_density, "Filter Low Density");
             ui.checkbox(&mut edge_params.filter_bidirectional, "Bidirectional");
+
+            // CMax-SLAM controls
+            if let Some(mut params) = cmax_params {
+                ui.separator();
+                ui.collapsing("CMax-SLAM", |ui| {
+                    ui.checkbox(&mut params.enabled, "Enable");
+
+                    ui.add(egui::Slider::new(&mut params.learning_rate, 0.0001..=0.01)
+                        .text("Learning Rate")
+                        .logarithmic(true));
+
+                    ui.add(egui::Slider::new(&mut params.smoothing_alpha, 0.0..=1.0)
+                        .text("Smoothing Alpha"));
+
+                    if let Some(state) = cmax_state.as_ref() {
+                        ui.separator();
+                        let rpm = state.omega.abs() * 60.0 / std::f32::consts::TAU * 1e6;
+                        ui.label(format!("Omega: {:.6} rad/us", state.omega));
+                        ui.label(format!("RPM: {:.1}", rpm));
+                        ui.label(format!("Converged: {}", state.converged));
+                    }
+                });
+            }
         });
 }
 
