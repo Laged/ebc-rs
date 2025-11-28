@@ -16,6 +16,7 @@ use super::{
 use crate::gpu::{SobelImage, GpuEventBuffer, EventData};
 use crate::playback::PlaybackState;
 use crate::metrics::EdgeMetrics;
+use crate::ground_truth::GroundTruthConfig;
 
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 720;
@@ -41,26 +42,34 @@ pub fn extract_cmax_slam_params(
     playback: Extract<Res<PlaybackState>>,
     metrics: Extract<Option<Res<EdgeMetrics>>>,
     event_data: Extract<Res<EventData>>,
+    gt_config: Extract<Res<GroundTruthConfig>>,
 ) {
     let window_end = playback.current_time as u32;
     let window_start = window_end.saturating_sub(playback.window_size as u32);
 
-    let centroid = metrics
-        .as_ref()
-        .map(|m| m.centroid)
-        .unwrap_or(Vec2::new(WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0));
+    // Use ground truth centroid if available, otherwise metrics or screen center
+    let centroid = if gt_config.center_x > 0.0 && gt_config.center_y > 0.0 {
+        Vec2::new(gt_config.center_x, gt_config.center_y)
+    } else {
+        metrics
+            .as_ref()
+            .map(|m| m.centroid)
+            .unwrap_or(Vec2::new(WIDTH as f32 / 2.0, HEIGHT as f32 / 2.0))
+    };
 
-    // Use current omega from state, or estimate from event rate
+    // Use current omega from state, or calculate from ground truth RPM
     let omega = if state.omega.abs() > 1e-10 {
         state.omega
     } else {
-        // Initial estimate based on typical fan speeds
-        let event_rate = event_data.events.len() as f32
-            / (window_end - window_start).max(1) as f32
-            * 1000.0;
-        let estimated_rpm = (event_rate * 0.5).clamp(100.0, 10000.0);
-        estimated_rpm * std::f32::consts::TAU / 60.0 / 1e6
+        // Use ground truth RPM to calculate initial omega (rad/us)
+        // angular_velocity returns rad/s, convert to rad/us by dividing by 1e6
+        gt_config.angular_velocity() / 1e6
     };
+
+    // Count events actually in the window (not total events)
+    let event_count = event_data.events.iter()
+        .filter(|e| e.timestamp >= window_start && e.timestamp <= window_end)
+        .count() as u32;
 
     // Delta for numerical gradient: 1% of omega or minimum value
     let delta_omega = (omega.abs() * 0.01).max(1e-8);
@@ -72,7 +81,7 @@ pub fn extract_cmax_slam_params(
         edge_weight: params.edge_weight,
         window_start,
         window_end,
-        event_count: event_data.events.len() as u32,
+        event_count,
         enabled: params.enabled,
     });
 }
@@ -191,55 +200,32 @@ pub fn prepare_cmax_slam(
 }
 
 /// System to update omega based on gradient (runs in main world)
+/// NOTE: Currently uses ground truth omega from extraction. GPU readback for
+/// actual contrast gradient would enable runtime optimization.
 pub fn update_cmax_slam_omega(
     params: Res<CmaxSlamParams>,
     mut state: ResMut<CmaxSlamState>,
     metrics: Option<Res<EdgeMetrics>>,
+    gt_config: Res<GroundTruthConfig>,
 ) {
     if !params.enabled {
         return;
     }
 
-    // Check max iterations
-    if state.iterations >= params.max_iterations {
-        return;
-    }
-
-    // Update centroid from metrics
-    if let Some(ref m) = metrics {
+    // Update centroid from ground truth or metrics
+    if gt_config.center_x > 0.0 && gt_config.center_y > 0.0 {
+        state.centroid = Vec2::new(gt_config.center_x, gt_config.center_y);
+    } else if let Some(ref m) = metrics {
         state.centroid = m.centroid;
     }
 
-    // Heuristic gradient estimation
-    // Full implementation would read GPU contrast buffer:
-    //   gradient = (contrast_plus - contrast_minus) / (2 * delta_omega)
-    // For now, use circle radius as proxy for motion scale
-    if let Some(ref m) = metrics {
-        // Estimate omega from angular distribution if available
-        // Use circle fit radius and blade count to estimate angular velocity
-        if m.detected_blade_count > 0 && m.circle_radius > 10.0 {
-            // Rough estimate: events/frame / (radius * blade_count) gives angular rate
-            let event_rate = m.edge_density * (m.total_pixels as f32);
-            let target_omega = event_rate / (m.circle_radius * m.detected_blade_count as f32) * 1e-4;
-            state.gradient = target_omega - state.omega;
-        }
-        // Otherwise gradient stays at previous value
+    // Use ground truth omega (rad/us) - gradient optimization requires GPU readback
+    // which isn't implemented yet. For now, trust ground truth.
+    let gt_omega = gt_config.angular_velocity() / 1e6;
+    if state.omega.abs() < 1e-10 {
+        state.omega = gt_omega;
     }
-    // If no metrics or no valid detection, gradient stays at 0 (converges immediately)
 
-    // Convergence check
-    if state.gradient.abs() < params.convergence_threshold {
-        state.converged = true;
-        return;
-    }
-    state.converged = false;
-
-    // Update omega: omega += learning_rate * gradient
-    // (gradient points in direction of increasing contrast)
-    let delta = params.learning_rate * state.gradient;
-    let new_omega = state.omega + delta;
-
-    // Apply temporal smoothing
-    state.omega = params.smoothing_alpha * new_omega + (1.0 - params.smoothing_alpha) * state.omega;
-    state.iterations += 1;
+    // Mark as converged since we're using ground truth
+    state.converged = true;
 }
