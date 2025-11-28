@@ -1,5 +1,5 @@
-// CMax-SLAM: Output the center IWE slice to Sobel texture
-// Applies edge detection (Sobel) to motion-compensated image
+// CMax-SLAM: Apply Sobel edge detection to motion-compensated IWE
+// Outputs edge magnitude to Sobel texture slot
 
 struct CmaxSlamParams {
     centroid_x: f32,         // 0-3
@@ -42,12 +42,33 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
 
-    // DEBUG: Just output raw IWE value to see if anything is accumulated
-    let iwe_val = get_iwe(x, y);
+    // Skip border pixels (Sobel needs 3x3 neighborhood)
+    if x < 1 || x >= i32(WIDTH) - 1 || y < 1 || y >= i32(HEIGHT) - 1 {
+        textureStore(output_texture, vec2<i32>(x, y), vec4<f32>(0.0));
+        return;
+    }
 
-    // Normalize for visualization (IWE values are event counts, can be 0-100+)
-    // Use log scale to see low values
-    let viz = log2(iwe_val + 1.0) / 8.0;
+    // Sample 3x3 neighborhood from IWE
+    let p00 = get_iwe(x - 1, y - 1);
+    let p10 = get_iwe(x,     y - 1);
+    let p20 = get_iwe(x + 1, y - 1);
+    let p01 = get_iwe(x - 1, y);
+    // p11 = center, not used in Sobel
+    let p21 = get_iwe(x + 1, y);
+    let p02 = get_iwe(x - 1, y + 1);
+    let p12 = get_iwe(x,     y + 1);
+    let p22 = get_iwe(x + 1, y + 1);
 
-    textureStore(output_texture, vec2<i32>(x, y), vec4<f32>(viz));
+    // Sobel kernels
+    // Gx = [-1 0 1]    Gy = [-1 -2 -1]
+    //      [-2 0 2]         [ 0  0  0]
+    //      [-1 0 1]         [ 1  2  1]
+    let gx = -p00 + p20 - 2.0 * p01 + 2.0 * p21 - p02 + p22;
+    let gy = -p00 - 2.0 * p10 - p20 + p02 + 2.0 * p12 + p22;
+
+    // Edge magnitude
+    let magnitude = sqrt(gx * gx + gy * gy);
+
+    // Output edge magnitude (will be thresholded downstream)
+    textureStore(output_texture, vec2<i32>(x, y), vec4<f32>(magnitude));
 }
