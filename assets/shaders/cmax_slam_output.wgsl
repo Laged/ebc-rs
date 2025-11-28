@@ -42,39 +42,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
 
-    // Skip border for Sobel
-    if x < 1 || x >= i32(WIDTH) - 1 || y < 1 || y >= i32(HEIGHT) - 1 {
-        textureStore(output_texture, vec2<i32>(x, y), vec4<f32>(0.0));
-        return;
-    }
+    // DEBUG: Just output raw IWE value to see if anything is accumulated
+    let iwe_val = get_iwe(x, y);
 
-    // Check if center has events
-    let center_val = get_iwe(x, y);
-    if center_val < 0.5 {
-        textureStore(output_texture, vec2<i32>(x, y), vec4<f32>(0.0));
-        return;
-    }
+    // Normalize for visualization (IWE values are event counts, can be 0-100+)
+    // Use log scale to see low values
+    let viz = log2(iwe_val + 1.0) / 8.0;
 
-    // Load 3x3 neighborhood
-    let p00 = get_iwe(x - 1, y - 1);
-    let p01 = get_iwe(x, y - 1);
-    let p02 = get_iwe(x + 1, y - 1);
-    let p10 = get_iwe(x - 1, y);
-    let p12 = get_iwe(x + 1, y);
-    let p20 = get_iwe(x - 1, y + 1);
-    let p21 = get_iwe(x, y + 1);
-    let p22 = get_iwe(x + 1, y + 1);
-
-    // Sobel kernels
-    let gx = -p00 + p02 - 2.0 * p10 + 2.0 * p12 - p20 + p22;
-    let gy = -p00 - 2.0 * p01 - p02 + p20 + 2.0 * p21 + p22;
-
-    let magnitude = sqrt(gx * gx + gy * gy);
-
-    // Normalize: IWE values can be high, so use log scale
-    // Then threshold to binary edge
-    let normalized = log2(magnitude + 1.0) / 10.0;
-    let edge_val = select(0.0, 1.0, normalized > 0.1);
-
-    textureStore(output_texture, vec2<i32>(x, y), vec4<f32>(edge_val));
+    textureStore(output_texture, vec2<i32>(x, y), vec4<f32>(viz));
 }

@@ -3,7 +3,9 @@
 
 struct GpuEvent {
     timestamp: u32,
-    data: u32,  // packed x[13:0], y[27:14], polarity[31:28]
+    x: u32,
+    y: u32,
+    polarity: u32,
 }
 
 struct CmParams {
@@ -27,14 +29,6 @@ struct CmParams {
 const WIDTH: u32 = 1280u;
 const HEIGHT: u32 = 720u;
 
-fn unpack_x(data: u32) -> u32 {
-    return data & 0x3FFFu;  // bits 0-13
-}
-
-fn unpack_y(data: u32) -> u32 {
-    return (data >> 14u) & 0x3FFFu;  // bits 14-27
-}
-
 @compute @workgroup_size(256)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let event_idx = gid.x;
@@ -49,9 +43,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
 
-    // Unpack event coordinates
-    let ex = f32(unpack_x(event.data));
-    let ey = f32(unpack_y(event.data));
+    // Use event coordinates directly from struct
+    let ex = f32(event.x);
+    let ey = f32(event.y);
 
     // Convert to polar around centroid
     let dx = ex - params.centroid_x;

@@ -3,7 +3,9 @@
 
 struct GpuEvent {
     timestamp: u32,
-    data: u32,  // packed x[13:0], y[27:14], polarity[31:28]
+    x: u32,
+    y: u32,
+    polarity: u32,
 }
 
 struct CmaxSlamParams {
@@ -36,14 +38,6 @@ struct ContrastResult {
 const WIDTH: u32 = 1280u;
 const HEIGHT: u32 = 720u;
 const SLICE_SIZE: u32 = 1280u * 720u;
-
-fn unpack_x(data: u32) -> u32 {
-    return data & 0x3FFFu;
-}
-
-fn unpack_y(data: u32) -> u32 {
-    return (data >> 14u) & 0x3FFFu;
-}
 
 // Warp event to IWE coordinate for given omega
 fn warp_event(ex: f32, ey: f32, dt: f32, omega: f32) -> vec2<f32> {
@@ -117,9 +111,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
 
-    // Unpack coordinates
-    let ex = f32(unpack_x(event.data));
-    let ey = f32(unpack_y(event.data));
+    // Use coordinates directly from struct
+    let ex = f32(event.x);
+    let ey = f32(event.y);
     let dt = f32(event.timestamp) - params.t_ref;
 
     // Warp for three omega values
