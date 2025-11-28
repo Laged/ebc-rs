@@ -17,7 +17,7 @@ use bevy::render::{
     ExtractSchedule,
 };
 
-use crate::gpu::PreprocessLabel;
+use crate::gpu::SobelLabel;
 
 /// Plugin for CMax-SLAM motion-compensated edge detection
 pub struct CmaxSlamPlugin;
@@ -38,9 +38,10 @@ impl Plugin for CmaxSlamPlugin {
             .add_systems(ExtractSchedule, extract_cmax_slam_params)
             .add_systems(Render, prepare_cmax_slam.in_set(RenderSystems::Prepare));
 
-        // Add to render graph after Preprocess
+        // Add to render graph AFTER Sobel - CMax-SLAM overwrites SobelImage
+        // This ensures motion-compensated edges replace raw Sobel output
         let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
         graph.add_node(CmaxSlamLabel, CmaxSlamNode::default());
-        graph.add_node_edge(PreprocessLabel, CmaxSlamLabel);
+        graph.add_node_edge(SobelLabel, CmaxSlamLabel);
     }
 }
