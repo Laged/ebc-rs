@@ -6,7 +6,7 @@ use bevy::render::{
     render_asset::RenderAssets,
     texture::GpuImage,
 };
-use super::resources::{FilteredSurfaceImage, SurfaceImage, EdgeParams};
+use super::resources::{FilteredSurfaceImage, SurfaceImage, ShortWindowSurfaceImage, EdgeParams};
 use super::types::GpuParams;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
@@ -94,7 +94,7 @@ pub fn prepare_preprocess(
     render_queue: Res<RenderQueue>,
     pipeline: Res<PreprocessPipeline>,
     mut bind_group_res: ResMut<PreprocessBindGroup>,
-    surface_image: Res<SurfaceImage>,
+    surface_image: Res<ShortWindowSurfaceImage>,
     filtered_image: Res<FilteredSurfaceImage>,
     edge_params: Res<EdgeParams>,
     gpu_images: Res<RenderAssets<GpuImage>>,
