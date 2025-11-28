@@ -169,6 +169,25 @@ pub fn draw_edge_controls(
                         // Display delta omega (optimizer step size)
                         ui.label(format!("Delta ω: {:.2e}", state.delta_omega));
 
+                        // Display raw unclamped step value
+                        ui.label(format!("Raw Step: {:.2e}", state.last_raw_step));
+
+                        // Display step clamping status with warning if clamped
+                        if state.step_was_clamped {
+                            ui.label(
+                                egui::RichText::new("⚠ Step Clamped")
+                                    .color(egui::Color32::from_rgb(255, 200, 0))
+                            );
+                        } else {
+                            ui.label("Step: Not clamped");
+                        }
+
+                        // Display EMA alpha (smoothing factor)
+                        ui.label(format!("EMA α: {:.2}", state.ema_alpha));
+
+                        // Display max step fraction
+                        ui.label(format!("Max Step: {:.1}%", state.max_step_fraction * 100.0));
+
                         // Display optimizer history size
                         ui.label(format!("History: {}/10", state.omega_history.len()));
 
