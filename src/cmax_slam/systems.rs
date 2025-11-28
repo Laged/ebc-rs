@@ -8,11 +8,12 @@ use bevy::render::{
     texture::GpuImage,
     Extract,
 };
+use std::f32::consts::TAU;
 
 use super::{
     CmaxSlamParams, CmaxSlamState, GpuCmaxSlamParams,
     CmaxSlamPipeline, CmaxSlamBindGroups, CmaxSlamBuffers,
-    GpuContrastResult,
+    GpuContrastResult, ContrastReceiver,
 };
 use crate::gpu::{SobelImage, GpuEventBuffer, EventData};
 use crate::playback::PlaybackState;
@@ -271,4 +272,91 @@ pub fn update_cmax_slam_omega(
 
     // Mark as converged since we're using ground truth
     state.converged = true;
+}
+
+/// System to receive contrast values and update omega (main world)
+pub fn receive_contrast_results(
+    receiver: Option<Res<ContrastReceiver>>,
+    mut state: ResMut<CmaxSlamState>,
+    params: Res<CmaxSlamParams>,
+    gt_config: Res<GroundTruthConfig>,
+) {
+    let Some(receiver) = receiver else { return };
+
+    // Cold start initialization
+    if !state.initialized {
+        state.omega = if gt_config.rpm > 0.0 {
+            // Use GT with +10% offset to test optimizer
+            gt_config.angular_velocity() / 1e6 * 1.1
+        } else {
+            // Default: 1000 RPM in rad/μs
+            1000.0 * TAU / 60.0 / 1e6
+        };
+        state.delta_omega = (state.omega.abs() * 0.01).max(1e-8);
+        state.initialized = true;
+        info!("CMax-SLAM initialized with omega={:.2e} rad/μs", state.omega);
+    }
+
+    // Check for new contrast values (receiver.rx is wrapped in Mutex)
+    let contrast_opt = {
+        if let Ok(rx) = receiver.rx.lock() {
+            rx.try_recv().ok()
+        } else {
+            None
+        }
+    };
+
+    if let Some(contrast) = contrast_opt {
+        state.contrast = contrast.center;
+
+        let v_c = contrast.center;
+        let v_p = contrast.plus;
+        let v_m = contrast.minus;
+
+        // Skip if no data
+        if v_c < 1.0 {
+            return;
+        }
+
+        // Numerical gradient: dV/dω ≈ (V+ - V-) / 2δ
+        let current_delta = state.delta_omega;
+        let gradient = (v_p - v_m) / (2.0 * current_delta);
+
+        // Parabolic interpolation for optimal step
+        let denominator = 2.0 * (v_p - 2.0 * v_c + v_m);
+
+        let step = if denominator.abs() > 1e-6 {
+            // Parabolic fit: jump to estimated peak
+            let raw_step = -(v_p - v_m) / (2.0 * denominator) * current_delta;
+            raw_step
+        } else {
+            // Fallback: gradient ascent
+            params.learning_rate * gradient.signum() * current_delta
+        };
+
+        // Clamp step (max 5% change per frame)
+        let max_step = current_delta * 5.0;
+        let clamped_step = step.clamp(-max_step, max_step);
+
+        // Update omega
+        state.omega += clamped_step;
+
+        // Update delta for next frame (1% of omega)
+        state.delta_omega = (state.omega.abs() * 0.01).max(1e-8);
+
+        // Track convergence
+        let current_omega = state.omega;
+        state.omega_history.push_back(current_omega);
+        if state.omega_history.len() > 10 {
+            state.omega_history.pop_front();
+
+            let mean: f32 = state.omega_history.iter().sum::<f32>()
+                / state.omega_history.len() as f32;
+            let variance: f32 = state.omega_history.iter()
+                .map(|x| (x - mean).powi(2))
+                .sum::<f32>() / state.omega_history.len() as f32;
+
+            state.converged = variance < (current_omega * 0.001).powi(2);
+        }
+    }
 }
