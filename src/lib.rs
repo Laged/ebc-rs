@@ -29,7 +29,7 @@ impl Default for EventFilePath {
 pub struct CompareLiveMode;
 
 pub use analysis::{AnalysisPlugin, EdgeData};
-pub use ground_truth::{GroundTruthConfig, GroundTruthMetrics};
+pub use ground_truth::{CentroidMotion, GroundTruthConfig, GroundTruthMetrics};
 pub use hyperparams::{HyperConfig, HyperResult};
 pub use loader::DatLoader;
 pub use metrics::EdgeMetrics;
