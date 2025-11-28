@@ -117,6 +117,17 @@ impl FromWorld for CmPipeline {
                     },
                     count: None,
                 },
+                // Edge texture (for edge-informed CM)
+                BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: false },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         );
 
@@ -295,13 +306,21 @@ impl Node for CmNode {
         };
 
         // Check if CM is enabled
-        let Some(extracted) = world.get_resource::<super::ExtractedCmParams>() else {
-            return Ok(());
-        };
-        if !extracted.enabled {
+        let extracted = world.get_resource::<super::ExtractedCmParams>();
+        if extracted.map(|e| !e.enabled).unwrap_or(true) {
             return Ok(());
         }
+
+        // Get buffers for clearing
+        let Some(buffers) = world.get_resource::<CmBuffers>() else {
+            return Ok(());
+        };
+
         let encoder = render_context.command_encoder();
+
+        // Clear buffers
+        encoder.clear_buffer(&buffers.iwe, 0, None);
+        encoder.clear_buffer(&buffers.contrast, 0, None);
 
         // Pass 1: Warp events to build IWE
         {

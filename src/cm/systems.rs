@@ -14,7 +14,7 @@ use super::{
     CmParams, GpuCmParams,
     CmPipeline, CmBindGroups, CmBuffers, GpuContrastParams,
 };
-use crate::gpu::{CmImage, GpuEventBuffer, EventData};
+use crate::gpu::{CmImage, SobelImage, GpuEventBuffer, EventData};
 use crate::playback::PlaybackState;
 use crate::metrics::EdgeMetrics;
 
@@ -67,6 +67,7 @@ pub fn prepare_cm(
     pipeline: Res<CmPipeline>,
     gpu_images: Res<RenderAssets<GpuImage>>,
     cm_image: Res<CmImage>,
+    sobel_image: Res<SobelImage>,
     gpu_events: Option<Res<GpuEventBuffer>>,
     extracted: Res<ExtractedCmParams>,
     buffers: Option<Res<CmBuffers>>,
@@ -79,6 +80,7 @@ pub fn prepare_cm(
     let Some(gpu_events) = gpu_events else { return };
     let Some(event_buffer) = &gpu_events.buffer else { return };
     let Some(cm_gpu) = gpu_images.get(&cm_image.handle) else { return };
+    let Some(sobel_gpu) = gpu_images.get(&sobel_image.handle) else { return };
 
     let n_omega = extracted.n_omega;
     let iwe_size = (WIDTH * HEIGHT * n_omega * 4) as u64;
@@ -141,7 +143,8 @@ pub fn prepare_cm(
     let omega_step = (omega_max - omega_min) / n_omega as f32;
 
     // Update params buffer
-    let t_ref = (extracted.window_start + extracted.window_end) as f32 / 2.0;
+    // t_ref must be window_end to align with the edge map (which is from the latest frame)
+    let t_ref = extracted.window_end as f32;
     let gpu_params = GpuCmParams {
         centroid_x: extracted.centroid.x,
         centroid_y: extracted.centroid.y,
@@ -206,6 +209,10 @@ pub fn prepare_cm(
             BindGroupEntry {
                 binding: 2,
                 resource: buffers.contrast.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 3,
+                resource: BindingResource::TextureView(&sobel_gpu.texture_view),
             },
         ],
     ));

@@ -66,10 +66,9 @@ pub fn extract_cmax_slam_params(
         gt_config.angular_velocity() / 1e6
     };
 
-    // Count events actually in the window (not total events)
-    let event_count = event_data.events.iter()
-        .filter(|e| e.timestamp >= window_start && e.timestamp <= window_end)
-        .count() as u32;
+    // Pass total event count - shader will filter by timestamp window
+    // (We can't use windowed count because events aren't sorted by index = timestamp)
+    let event_count = event_data.events.len() as u32;
 
     // Delta for numerical gradient: 1% of omega or minimum value
     let delta_omega = (omega.abs() * 0.01).max(1e-8);
@@ -153,6 +152,19 @@ pub fn prepare_cmax_slam(
         event_count: extracted.event_count,
         _pad: [0; 3],
     };
+
+    // DEBUG: Log params every ~60 frames
+    static DEBUG_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let count = DEBUG_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if count % 60 == 0 {
+        bevy::log::info!(
+            "CMax-SLAM params: centroid=({:.1}, {:.1}), omega={:.2e}, t_ref={:.0}, window=[{}, {}], events={}",
+            gpu_params.centroid_x, gpu_params.centroid_y,
+            gpu_params.omega, gpu_params.t_ref,
+            gpu_params.window_start, gpu_params.window_end,
+            gpu_params.event_count
+        );
+    }
     render_queue.write_buffer(&buffers.params, 0, bytemuck::bytes_of(&gpu_params));
 
     // Create bind groups
