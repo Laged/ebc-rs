@@ -29,9 +29,17 @@ pub struct CmaxSlamPlugin;
 
 impl Plugin for CmaxSlamPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<CmaxSlamParams>()
+        // Create channel for contrast values
+        let (sender, receiver) = create_contrast_channel();
+
+        app.insert_resource(receiver)
+           .init_resource::<CmaxSlamParams>()
            .init_resource::<CmaxSlamState>()
-           .add_systems(Update, update_cmax_slam_omega);
+           .add_systems(Update, receive_contrast_results);
+
+        // Add sender to render app
+        let render_app = app.sub_app_mut(RenderApp);
+        render_app.insert_resource(sender);
     }
 
     fn finish(&self, app: &mut App) {
