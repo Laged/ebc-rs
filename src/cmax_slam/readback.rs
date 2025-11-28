@@ -1,10 +1,6 @@
 //! Async readback infrastructure for CMax-SLAM contrast values
 
 use bevy::prelude::*;
-use bevy::render::{
-    renderer::RenderDevice,
-    render_resource::{Buffer, MapMode, PollType},
-};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
@@ -49,58 +45,4 @@ pub fn create_contrast_channel() -> (ContrastSender, ContrastReceiver) {
             rx: Mutex::new(rx),
         },
     )
-}
-
-/// Trigger async readback of contrast values
-pub fn trigger_contrast_readback(
-    staging_buffer: &Buffer,
-    _sender: &ContrastSender,
-    render_device: &RenderDevice,
-) {
-    let slice = staging_buffer.slice(..);
-
-    slice.map_async(MapMode::Read, move |result: Result<(), _>| {
-        if result.is_ok() {
-            // Note: We can't access the buffer data in this callback directly
-            // The actual read happens in a polling system
-        }
-    });
-
-    // Poll to drive the async operation
-    let _ = render_device.poll(PollType::Poll);
-}
-
-/// Check if readback is ready and send values
-/// Returns true if readback completed successfully
-pub fn poll_contrast_readback(
-    staging_buffer: &Buffer,
-    sender: &ContrastSender,
-) -> bool {
-    let slice = staging_buffer.slice(..);
-
-    // Try to get mapped range - this will panic if buffer isn't mapped yet
-    // In production, the render node should call this only after confirming the map is ready
-    let data = slice.get_mapped_range();
-
-    if data.len() >= 16 {
-        let result: &GpuContrastResult = bytemuck::from_bytes(&data[..16]);
-
-        // Convert to float contrast values
-        let values = ContrastValues {
-            center: result.sum_sq_center as f32,
-            plus: result.sum_sq_plus as f32,
-            minus: result.sum_sq_minus as f32,
-        };
-
-        // Send to main world
-        if let Ok(tx) = sender.tx.lock() {
-            let _ = tx.send(values);
-        }
-
-        drop(data);
-        staging_buffer.unmap();
-        return true;
-    }
-
-    false
 }

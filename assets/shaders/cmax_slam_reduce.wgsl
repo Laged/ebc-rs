@@ -30,19 +30,24 @@ fn main(
     let global_idx = gid.x;
     let local_idx = lid.x;
 
-    // Load pixel values (shift right by 12 to prevent overflow)
-    // Raw values are 0-65280 (u8 * 256 from bilinear), >> 12 gives 0-15
+    // Load pixel values and shift right by 4 to prevent overflow
+    // Raw values from bilinear voting: ~0-4096 typically (depends on event density)
+    // >> 4 gives 0-256, squared max = 65536 per pixel
+    // With 921600 pixels / 256 threads per workgroup = 3600 workgroups
+    // Each workgroup sums 256 squared values: max 256 * 65536 = 16M (safe for u32)
+    // Total across all workgroups: 3600 * 16M could overflow, but workgroup reduction
+    // limits it to sum of 256 values before atomic add
     var val_c = 0u;
     var val_p = 0u;
     var val_m = 0u;
 
     if global_idx < SLICE_SIZE {
-        val_c = iwe_buffer[global_idx] >> 12u;
-        val_p = iwe_buffer[global_idx + SLICE_SIZE] >> 12u;
-        val_m = iwe_buffer[global_idx + 2u * SLICE_SIZE] >> 12u;
+        val_c = iwe_buffer[global_idx] >> 4u;
+        val_p = iwe_buffer[global_idx + SLICE_SIZE] >> 4u;
+        val_m = iwe_buffer[global_idx + 2u * SLICE_SIZE] >> 4u;
     }
 
-    // Square values (max 15^2 = 225)
+    // Square values (max 256^2 = 65536)
     local_center[local_idx] = val_c * val_c;
     local_plus[local_idx] = val_p * val_p;
     local_minus[local_idx] = val_m * val_m;

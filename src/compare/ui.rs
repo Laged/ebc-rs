@@ -166,6 +166,20 @@ pub fn draw_edge_controls(
                         // Display omega
                         ui.label(format!("Omega: {:.6} rad/μs", state.omega));
 
+                        // Display delta omega (optimizer step size)
+                        ui.label(format!("Delta ω: {:.2e}", state.delta_omega));
+
+                        // Display optimizer history size
+                        ui.label(format!("History: {}/10", state.omega_history.len()));
+
+                        // Display initialization status
+                        if !state.initialized {
+                            ui.label(
+                                egui::RichText::new("⚠ Not initialized")
+                                    .color(egui::Color32::YELLOW)
+                            );
+                        }
+
                         // Display convergence status with color coding
                         let convergence_color = if state.converged {
                             egui::Color32::GREEN

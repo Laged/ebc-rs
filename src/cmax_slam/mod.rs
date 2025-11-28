@@ -49,6 +49,9 @@ impl Plugin for CmaxSlamPlugin {
             .init_resource::<CmaxSlamPipeline>()
             .init_resource::<CmaxSlamBindGroups>()
             .add_systems(ExtractSchedule, extract_cmax_slam_params)
+            // Readback must run BEFORE prepare_cmax_slam to read last frame's results
+            // and ensure buffer is unmapped before render graph copies to it
+            .add_systems(Render, readback_contrast_results.in_set(RenderSystems::Prepare).before(prepare_cmax_slam))
             .add_systems(Render, prepare_cmax_slam.in_set(RenderSystems::Prepare));
 
         // Add to render graph AFTER Sobel - CMax-SLAM overwrites SobelImage

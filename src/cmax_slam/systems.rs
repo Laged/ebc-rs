@@ -13,7 +13,7 @@ use std::f32::consts::TAU;
 use super::{
     CmaxSlamParams, CmaxSlamState, GpuCmaxSlamParams,
     CmaxSlamPipeline, CmaxSlamBindGroups, CmaxSlamBuffers,
-    GpuContrastResult, ContrastReceiver,
+    GpuContrastResult, ContrastReceiver, ContrastSender, ContrastValues,
 };
 use crate::gpu::{SobelImage, GpuEventBuffer, EventData};
 use crate::playback::PlaybackState;
@@ -141,7 +141,7 @@ pub fn prepare_cmax_slam(
             contrast_result: render_device.create_buffer(&BufferDescriptor {
                 label: Some("cmax_slam_contrast_result"),
                 size: contrast_result_size,
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }),
             contrast_staging: render_device.create_buffer(&BufferDescriptor {
@@ -359,4 +359,88 @@ pub fn receive_contrast_results(
             state.converged = variance < (current_omega * 0.001).powi(2);
         }
     }
+}
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+/// Resource to track readback state in render world
+/// Uses polling with PollType::Wait to ensure readback completes synchronously
+#[derive(Default)]
+pub struct ReadbackState {
+    pub frame_count: u32,
+}
+
+/// Render world system: synchronous buffer readback
+/// Runs in Prepare phase to ensure buffer is unmapped before render graph copies to it
+/// Note: This blocks until GPU work completes, adding latency but ensuring correctness
+pub fn readback_contrast_results(
+    render_device: Res<RenderDevice>,
+    buffers: Option<Res<CmaxSlamBuffers>>,
+    sender: Option<Res<ContrastSender>>,
+    extracted: Option<Res<ExtractedCmaxSlamParams>>,
+    mut readback_state: Local<ReadbackState>,
+) {
+    let Some(buffers) = buffers else { return };
+    let Some(sender) = sender else { return };
+    let Some(extracted) = extracted else { return };
+
+    if !extracted.enabled {
+        return;
+    }
+
+    // Skip first 2 frames to let pipeline stabilize
+    readback_state.frame_count += 1;
+    if readback_state.frame_count < 3 {
+        return;
+    }
+
+    let staging = &buffers.contrast_staging;
+    let slice = staging.slice(..);
+
+    // Map the buffer synchronously using Wait polling
+    let ready = Arc::new(AtomicBool::new(false));
+    let ready_clone = ready.clone();
+
+    slice.map_async(MapMode::Read, move |result| {
+        if result.is_ok() {
+            ready_clone.store(true, Ordering::Release);
+        }
+    });
+
+    // Wait for mapping to complete (blocking)
+    let _ = render_device.poll(PollType::Wait);
+
+    // Read the data if mapping succeeded
+    if ready.load(Ordering::Acquire) {
+        let data = slice.get_mapped_range();
+
+        if data.len() >= 16 {
+            let result: &GpuContrastResult = bytemuck::from_bytes(&data[..16]);
+
+            // Debug log every 60 frames
+            if readback_state.frame_count % 60 == 0 {
+                info!(
+                    "Contrast readback: center={}, plus={}, minus={}, pixels={}",
+                    result.sum_sq_center, result.sum_sq_plus, result.sum_sq_minus, result.pixel_count
+                );
+            }
+
+            // Convert to float contrast values
+            let values = ContrastValues {
+                center: result.sum_sq_center as f32,
+                plus: result.sum_sq_plus as f32,
+                minus: result.sum_sq_minus as f32,
+            };
+
+            // Send to main world
+            if let Ok(tx) = sender.tx.lock() {
+                let _ = tx.send(values);
+            }
+        }
+        drop(data);
+    }
+
+    // Always unmap before render graph runs
+    staging.unmap();
 }
