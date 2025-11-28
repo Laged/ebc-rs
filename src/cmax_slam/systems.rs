@@ -280,7 +280,46 @@ pub fn update_cmax_slam_omega(
     state.converged = true;
 }
 
-/// System to receive contrast values and update omega (main world)
+/// Helper function to update convergence tracking for both omega and centroid
+fn update_convergence_3d(state: &mut CmaxSlamState) {
+    // Track omega history
+    state.omega_history.push_back(state.omega);
+    if state.omega_history.len() > 10 {
+        state.omega_history.pop_front();
+    }
+
+    // Track centroid history
+    state.centroid_history.push_back(state.centroid);
+    if state.centroid_history.len() > 10 {
+        state.centroid_history.pop_front();
+    }
+
+    // Only check convergence if we have enough samples
+    if state.omega_history.len() >= 10 && state.centroid_history.len() >= 10 {
+        // Compute omega variance
+        let omega_mean: f32 = state.omega_history.iter().sum::<f32>()
+            / state.omega_history.len() as f32;
+        let omega_variance: f32 = state.omega_history.iter()
+            .map(|x| (x - omega_mean).powi(2))
+            .sum::<f32>() / state.omega_history.len() as f32;
+
+        // Compute centroid variance (as L2 distance from mean)
+        let centroid_mean = state.centroid_history.iter()
+            .fold(Vec2::ZERO, |acc, &v| acc + v) / state.centroid_history.len() as f32;
+        let centroid_variance: f32 = state.centroid_history.iter()
+            .map(|&v| (v - centroid_mean).length_squared())
+            .sum::<f32>() / state.centroid_history.len() as f32;
+
+        // Convergence thresholds
+        let omega_threshold = (state.omega * 0.001).powi(2);
+        let centroid_threshold = 1.0; // 1 pixel squared
+
+        // Converged if both are below threshold
+        state.converged = omega_variance < omega_threshold && centroid_variance < centroid_threshold;
+    }
+}
+
+/// System to receive contrast values and update omega + centroid (main world)
 pub fn receive_contrast_results(
     receiver: Option<Res<ContrastReceiver>>,
     mut state: ResMut<CmaxSlamState>,
@@ -316,58 +355,70 @@ pub fn receive_contrast_results(
         state.contrast = contrast.center;
 
         let v_c = contrast.center;
-        let v_p = contrast.omega_plus;
-        let v_m = contrast.omega_minus;
+        let v_omega_p = contrast.omega_plus;
+        let v_omega_m = contrast.omega_minus;
+        let v_cx_p = contrast.cx_plus;
+        let v_cx_m = contrast.cx_minus;
+        let v_cy_p = contrast.cy_plus;
+        let v_cy_m = contrast.cy_minus;
 
         // Skip if no data
         if v_c < 1.0 {
             return;
         }
 
-        // Numerical gradient: dV/dω ≈ (V+ - V-) / 2δ
-        let current_delta = state.delta_omega;
-        let gradient = (v_p - v_m) / (2.0 * current_delta);
+        // === OMEGA UPDATE (Parabolic Step) ===
+        let current_delta_omega = state.delta_omega;
 
-        // Parabolic interpolation for optimal step
-        let denominator = 2.0 * (v_p - 2.0 * v_c + v_m);
-
-        let raw_step = if denominator.abs() > 1e-6 {
+        // Parabolic interpolation for omega
+        let denominator_omega = 2.0 * (v_omega_p - 2.0 * v_c + v_omega_m);
+        let raw_step_omega = if denominator_omega.abs() > 1e-6 {
             // Parabolic fit: jump to estimated peak
-            -(v_p - v_m) / (2.0 * denominator) * current_delta
+            -(v_omega_p - v_omega_m) / (2.0 * denominator_omega) * current_delta_omega
         } else {
             // Fallback: gradient ascent
-            params.learning_rate * gradient.signum() * current_delta
+            let gradient_omega = (v_omega_p - v_omega_m) / (2.0 * current_delta_omega);
+            state.lr_omega * gradient_omega.signum() * current_delta_omega
         };
 
-        // CLAMP step to ±(max_step_fraction * omega), with minimum for cold start
-        let max_step = (state.omega.abs() * params.max_step_fraction).max(1e-7);
-        let clamped_step = raw_step.clamp(-max_step, max_step);
-        state.last_raw_step = raw_step;
-        state.step_was_clamped = raw_step.abs() > max_step;
+        // Clamp omega step by max_step_fraction
+        let max_step_omega = (state.omega.abs() * params.max_step_fraction).max(1e-7);
+        let clamped_step_omega = raw_step_omega.clamp(-max_step_omega, max_step_omega);
+        state.last_raw_step = raw_step_omega;
+        state.step_was_clamped = raw_step_omega.abs() > max_step_omega;
 
-        // Apply clamped step to get raw omega
-        let omega_raw = state.omega + clamped_step;
-
-        // EMA smooth the update
+        // Apply clamped step with EMA smoothing
+        let omega_raw = state.omega + clamped_step_omega;
         state.omega = params.ema_alpha * omega_raw + (1.0 - params.ema_alpha) * state.omega;
 
-        // Update delta for next frame (1% of omega)
+        // === CENTROID UPDATE (Gradient Ascent) ===
+        let current_delta_pos = state.delta_pos;
+
+        // Compute gradients for cx and cy
+        let grad_cx = (v_cx_p - v_cx_m) / (2.0 * current_delta_pos);
+        let grad_cy = (v_cy_p - v_cy_m) / (2.0 * current_delta_pos);
+
+        // Gradient ascent steps
+        let raw_step_cx = state.lr_centroid * grad_cx;
+        let raw_step_cy = state.lr_centroid * grad_cy;
+
+        // Clamp centroid steps to ±5 pixels
+        let max_step_centroid = 5.0;
+        let clamped_step_cx = raw_step_cx.clamp(-max_step_centroid, max_step_centroid);
+        let clamped_step_cy = raw_step_cy.clamp(-max_step_centroid, max_step_centroid);
+
+        // Apply clamped steps with EMA smoothing
+        let centroid_raw = state.centroid + Vec2::new(clamped_step_cx, clamped_step_cy);
+        state.centroid = params.ema_alpha * centroid_raw + (1.0 - params.ema_alpha) * state.centroid;
+
+        // === UPDATE DELTAS ===
+        // Update delta_omega for next frame (1% of omega)
         state.delta_omega = (state.omega.abs() * 0.01).max(1e-8);
 
-        // Track convergence
-        let current_omega = state.omega;
-        state.omega_history.push_back(current_omega);
-        if state.omega_history.len() > 10 {
-            state.omega_history.pop_front();
+        // delta_pos stays constant at 3.0 pixels (as per Task 4 spec)
 
-            let mean: f32 = state.omega_history.iter().sum::<f32>()
-                / state.omega_history.len() as f32;
-            let variance: f32 = state.omega_history.iter()
-                .map(|x| (x - mean).powi(2))
-                .sum::<f32>() / state.omega_history.len() as f32;
-
-            state.converged = variance < (current_omega * 0.001).powi(2);
-        }
+        // === CONVERGENCE TRACKING ===
+        update_convergence_3d(&mut state);
     }
 }
 

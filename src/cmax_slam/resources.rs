@@ -75,6 +75,16 @@ pub struct CmaxSlamState {
     pub last_raw_step: f32,
     /// Flag for UI
     pub step_was_clamped: bool,
+
+    // Phase 2: Centroid tracking fields
+    /// Perturbation size for centroid position (pixels)
+    pub delta_pos: f32,
+    /// Recent centroid positions for convergence detection
+    pub centroid_history: VecDeque<Vec2>,
+    /// Learning rate for omega updates
+    pub lr_omega: f32,
+    /// Learning rate for centroid updates
+    pub lr_centroid: f32,
 }
 
 impl Default for CmaxSlamState {
@@ -93,6 +103,10 @@ impl Default for CmaxSlamState {
             max_step_fraction: 0.02,
             last_raw_step: 0.0,
             step_was_clamped: false,
+            delta_pos: 3.0,
+            centroid_history: VecDeque::with_capacity(16),
+            lr_omega: 0.5,
+            lr_centroid: 0.1,
         }
     }
 }
