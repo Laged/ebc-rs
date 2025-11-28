@@ -33,6 +33,6 @@ pub use ground_truth::{
     GroundTruthBindGroup, GroundTruthLabel, GroundTruthNode, GroundTruthPipeline,
     prepare_ground_truth,
 };
-pub use resources::{ActiveDetector, CannyImage, EdgeParams, EdgeReadbackBuffer, EventData, FilteredSurfaceImage, GpuEventBuffer, GroundTruthImage, LogImage, SobelImage, SurfaceImage};
+pub use resources::{ActiveDetector, CannyImage, CmImage, EdgeParams, EdgeReadbackBuffer, EventData, FilteredSurfaceImage, GpuEventBuffer, GroundTruthImage, LogImage, ShortWindowSurfaceImage, SobelImage, SurfaceImage};
 pub use types::{GpuParams, GpuEdgeParams, GpuEvent};
 pub use readback::{ReadbackLabel, ReadbackNode, prepare_readback, read_readback_result};

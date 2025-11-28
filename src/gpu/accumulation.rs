@@ -50,6 +50,16 @@ impl FromWorld for EventComputePipeline {
                     },
                     count: None,
                 },
+                BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         );
 
@@ -96,12 +106,33 @@ pub fn prepare_events(
         0
     };
 
+    // Calculate short window (1/10th of window size, min 1ms)
+    let short_window_size = (playback_state.window_size as u32 / 10).max(1000);
+    let short_window_start = window_end.saturating_sub(short_window_size);
+
     // Update dimension buffer every frame
+    // Layout: [width, height, window_start, window_end, short_window_start, padding, padding, padding]
     if let Some(dim_buffer) = &gpu_buffer.dim_buffer {
-        let dimensions = [width, height, window_start, window_end];
+        let dimensions = [width, height, window_start, window_end, short_window_start, 0, 0, 0];
         render_queue.write_buffer(dim_buffer, 0, bytemuck::cast_slice(&dimensions));
     }
 
+    // Create short_window_buffer if needed
+    let size = width * height * 4;
+    if gpu_buffer.short_window_buffer.is_none() {
+        gpu_buffer.short_window_buffer = Some(render_device.create_buffer(&BufferDescriptor {
+            label: Some("Short Window Surface Buffer"),
+            size: size as u64,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }));
+    }
+
+    // Clear short_window_buffer (write zeros)
+    // Note: We clear it here for safety, but the compute shader accumulates with atomicMax.
+    // Ideally we should clear it before dispatch. The node does that.
+    // But we need to initialize it once.
+    
     if gpu_buffer.uploaded {
         return;
     }
@@ -120,7 +151,7 @@ pub fn prepare_events(
     gpu_buffer.count = event_data.events.len() as u32;
     gpu_buffer.dimensions = UVec2::new(width, height);
 
-    let dimensions = [width, height, 0u32, 20000u32];
+    let dimensions = [width, height, 0u32, 20000u32, 0u32, 0u32, 0u32, 0u32];
     gpu_buffer.dim_buffer = Some(
         render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("Dimensions Buffer"),
@@ -129,7 +160,6 @@ pub fn prepare_events(
         }),
     );
 
-    let size = width * height * 4;
     gpu_buffer.surface_buffer = Some(render_device.create_buffer(&BufferDescriptor {
         label: Some("Surface Buffer"),
         size: size as u64,
@@ -139,6 +169,13 @@ pub fn prepare_events(
 
     render_queue.write_buffer(
         gpu_buffer.surface_buffer.as_ref().unwrap(),
+        0,
+        &vec![0u8; size as usize],
+    );
+
+    // Initialize short window buffer
+    render_queue.write_buffer(
+        gpu_buffer.short_window_buffer.as_ref().unwrap(),
         0,
         &vec![0u8; size as usize],
     );
@@ -156,9 +193,10 @@ pub fn queue_bind_group(
         return;
     }
 
-    if let (Some(events), Some(surface), Some(dim_buffer)) = (
+    if let (Some(events), Some(surface), Some(short_window), Some(dim_buffer)) = (
         &gpu_buffer.buffer,
         &gpu_buffer.surface_buffer,
+        &gpu_buffer.short_window_buffer,
         &gpu_buffer.dim_buffer,
     ) {
         let bind_group = render_device.create_bind_group(
@@ -176,6 +214,10 @@ pub fn queue_bind_group(
                 BindGroupEntry {
                     binding: 2,
                     resource: dim_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 3,
+                    resource: short_window.as_entire_binding(),
                 },
             ],
         );
@@ -207,11 +249,16 @@ impl Node for EventAccumulationNode {
         let gpu_images = world.resource::<RenderAssets<GpuImage>>();
 
         if let Some(compute_pipeline) = pipeline_cache.get_compute_pipeline(pipeline.pipeline) {
-            // Clear surface buffer
+            // Clear surface buffer and short_window_buffer
             if let Some(surface_buffer) = &gpu_buffer.surface_buffer {
                 render_context
                     .command_encoder()
                     .clear_buffer(surface_buffer, 0, None);
+            }
+            if let Some(short_window_buffer) = &gpu_buffer.short_window_buffer {
+                render_context
+                    .command_encoder()
+                    .clear_buffer(short_window_buffer, 0, None);
             }
 
             // Run compute pass
@@ -246,6 +293,34 @@ impl Node for EventAccumulationNode {
                     render_context.command_encoder().copy_buffer_to_texture(
                         TexelCopyBufferInfo {
                             buffer: surface_buffer,
+                            layout: TexelCopyBufferLayout {
+                                offset: 0,
+                                bytes_per_row: Some(gpu_buffer.dimensions.x * 4),
+                                rows_per_image: Some(gpu_buffer.dimensions.y),
+                            },
+                        },
+                        TexelCopyTextureInfo {
+                            texture: &gpu_image.texture,
+                            mip_level: 0,
+                            origin: Origin3d::ZERO,
+                            aspect: TextureAspect::All,
+                        },
+                        Extent3d {
+                            width: gpu_buffer.dimensions.x,
+                            height: gpu_buffer.dimensions.y,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                }
+            }
+
+            // Copy short_window_buffer to texture
+            if let Some(short_window_buffer) = &gpu_buffer.short_window_buffer {
+                let short_window_image = world.resource::<crate::gpu::ShortWindowSurfaceImage>();
+                if let Some(gpu_image) = gpu_images.get(&short_window_image.handle) {
+                    render_context.command_encoder().copy_buffer_to_texture(
+                        TexelCopyBufferInfo {
+                            buffer: short_window_buffer,
                             layout: TexelCopyBufferLayout {
                                 offset: 0,
                                 bytes_per_row: Some(gpu_buffer.dimensions.x * 4),

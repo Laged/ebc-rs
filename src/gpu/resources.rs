@@ -15,6 +15,12 @@ pub struct SurfaceImage {
     pub handle: Handle<Image>,
 }
 
+// Handle to short-window surface texture (sharp reference for CM)
+#[derive(Resource, ExtractResource, Clone, Default)]
+pub struct ShortWindowSurfaceImage {
+    pub handle: Handle<Image>,
+}
+
 // Handle to filtered surface texture (preprocess output)
 #[derive(Resource, ExtractResource, Clone, Default)]
 pub struct FilteredSurfaceImage {
@@ -39,6 +45,12 @@ pub struct LogImage {
     pub handle: Handle<Image>,
 }
 
+// Handle to CM output image (contrast maximization for RPM estimation)
+#[derive(Resource, ExtractResource, Clone, Default)]
+pub struct CmImage {
+    pub handle: Handle<Image>,
+}
+
 // Handle to ground truth texture (validation output)
 #[derive(Resource, ExtractResource, Clone, Default)]
 pub struct GroundTruthImage {
@@ -51,6 +63,7 @@ pub struct GpuEventBuffer {
     pub buffer: Option<Buffer>,
     pub count: u32,
     pub surface_buffer: Option<Buffer>,
+    pub short_window_buffer: Option<Buffer>,
     pub sobel_buffer: Option<Buffer>,
     pub dimensions: UVec2,
     pub dim_buffer: Option<Buffer>,
@@ -152,7 +165,7 @@ impl Default for EdgeParams {
             show_log: false,
             show_raw: false,
             show_ground_truth: false,
-            sobel_threshold: 1.0,  // Binary edge detection: magnitude 0-5.66
+            sobel_threshold: 0.2,  // Lower threshold for sparse events
             threshold: 1.0, // Keep for backwards compatibility
             canny_low_threshold: 0.5,  // Binary edge detection: magnitude 0-5.66
             canny_high_threshold: 2.0,

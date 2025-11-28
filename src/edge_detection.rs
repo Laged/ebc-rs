@@ -16,6 +16,7 @@ pub struct EdgeDetectionPlugin;
 impl Plugin for EdgeDetectionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SurfaceImage>()
+            .init_resource::<ShortWindowSurfaceImage>()
             .init_resource::<FilteredSurfaceImage>()
             .init_resource::<SobelImage>()
             .init_resource::<CannyImage>()
@@ -26,6 +27,7 @@ impl Plugin for EdgeDetectionPlugin {
             .init_resource::<GroundTruthConfig>()
             .add_plugins(ExtractResourcePlugin::<EventData>::default())
             .add_plugins(ExtractResourcePlugin::<SurfaceImage>::default())
+            .add_plugins(ExtractResourcePlugin::<ShortWindowSurfaceImage>::default())
             .add_plugins(ExtractResourcePlugin::<FilteredSurfaceImage>::default())
             .add_plugins(ExtractResourcePlugin::<SobelImage>::default())
             .add_plugins(ExtractResourcePlugin::<CannyImage>::default())

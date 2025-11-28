@@ -37,46 +37,38 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    // Load 3x3 neighborhood - use binary event presence for edge detection
+    // Load 3x3 neighborhood and extract timestamps
     // Filtered texture packs: (timestamp << 1) | polarity (or 0 if filtered out)
-    // For edge detection, we care about WHERE events are, not WHEN exactly
-    var has_event: array<f32, 9>;
+    var timestamps: array<f32, 9>;
     var idx = 0u;
     for (var dy = -1; dy <= 1; dy++) {
         for (var dx = -1; dx <= 1; dx++) {
             let pos = coords + vec2<i32>(dx, dy);
             let packed = textureLoad(filtered_texture, pos, 0).r;
-            // Binary: 1.0 if event present, 0.0 if not
-            has_event[idx] = select(0.0, 1.0, packed > 0u);
+            // Extract timestamp by shifting right (polarity is in bit 0)
+            timestamps[idx] = f32(packed >> 1u);
             idx++;
         }
     }
 
-    // Check if center pixel has an event
-    if (has_event[4] < 0.5) {
+    // Check if center pixel was filtered out by preprocess stage
+    let center_timestamp = timestamps[4];
+    if (center_timestamp < 1.0) {
         textureStore(gradient_output, coords, vec4<f32>(0.0));
         return;
     }
 
-    // Sobel kernels on binary event presence
-    // Detects boundaries between event-active and event-inactive regions
+    // Sobel kernels
     // Gx: [-1  0  1]    Gy: [-1 -2 -1]
     //     [-2  0  2]        [ 0  0  0]
     //     [-1  0  1]        [ 1  2  1]
 
-    let gx = -has_event[0] + has_event[2]
-             - 2.0 * has_event[3] + 2.0 * has_event[5]
-             - has_event[6] + has_event[8];
+    let gx = -timestamps[0] + timestamps[2]
+             - 2.0 * timestamps[3] + 2.0 * timestamps[5]
+             - timestamps[6] + timestamps[8];
 
-    let gy = -has_event[0] - 2.0 * has_event[1] - has_event[2]
-             + has_event[6] + 2.0 * has_event[7] + has_event[8];
-
-    let magnitude = sqrt(gx * gx + gy * gy);
-
-    // With binary event inputs, magnitude range is 0-5.66 (max Sobel response)
-    // Threshold is used directly - typical values: 0.5 (weak edges), 2.0 (strong edges)
-    // Note: UI may use 0-10000 scale, in which case divide by 1000 to get 0-10 range
-    // But hypersearch uses direct values like 0.5, 1.0, 2.0
+    let gy = -timestamps[0] - 2.0 * timestamps[1] - timestamps[2]
+             + timestamps[6] + 2.0 * timestamps[7] + timestamps[8];
 
     // Post-processing: Bidirectional gradient check
     // Requires significant gradient in both X and Y directions
@@ -90,7 +82,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
 
-    // Threshold and write - use threshold directly
+    let magnitude = sqrt(gx * gx + gy * gy);
+
+    // Threshold and write
     let edge_value = select(0.0, 1.0, magnitude > params.sobel_threshold);
     textureStore(gradient_output, coords, vec4<f32>(edge_value));
 }

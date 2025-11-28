@@ -16,11 +16,13 @@ use bevy::window::WindowResolution;
 use clap::Parser;
 use std::path::PathBuf;
 
+use ebc_rs::cm::CmPlugin;
+use ebc_rs::cmax_slam::CmaxSlamPlugin;
 use ebc_rs::compare::{
     CompareConfig, CompareUiPlugin, CompositeImage, CompositeRenderPlugin, DataFileState,
 };
 use ebc_rs::edge_detection::EdgeDetectionPlugin;
-use ebc_rs::gpu::EdgeParams;
+use ebc_rs::gpu::{CmImage, EdgeParams};
 use ebc_rs::{CompareLiveMode, EventFilePath};
 
 #[derive(Parser, Debug)]
@@ -85,6 +87,10 @@ fn main() {
         }))
         // Note: EguiPlugin is added by EdgeDetectionPlugin (via EventRendererPlugin)
         .add_plugins(EdgeDetectionPlugin)
+        .add_plugins(CmaxSlamPlugin)
+        .add_plugins(CmPlugin)
+        .init_resource::<CmImage>()
+        .add_plugins(bevy::render::extract_resource::ExtractResourcePlugin::<CmImage>::default())
         .add_plugins(CompositeRenderPlugin)
         .add_plugins(CompareUiPlugin)
         .insert_resource(CompareLiveMode)  // Signal to EventRendererPlugin to skip mesh spawning
@@ -143,6 +149,7 @@ fn setup_composite_texture(
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut cm_image_res: ResMut<CmImage>,
 ) {
     // Create 2560x1440 composite output texture
     let size = Extent3d {
@@ -163,6 +170,24 @@ fn setup_composite_texture(
 
     let handle = images.add(composite);
     commands.insert_resource(CompositeImage { handle: handle.clone() });
+
+    // Initialize CM output texture (same size as other detector outputs: 1280x720, R32Float)
+    let cm_size = Extent3d {
+        width: 1280,
+        height: 720,
+        depth_or_array_layers: 1,
+    };
+
+    let mut cm_image = Image::new_fill(
+        cm_size,
+        TextureDimension::D2,
+        &[0, 0, 0, 0],
+        TextureFormat::R32Float,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    cm_image.texture_descriptor.usage =
+        TextureUsages::STORAGE_BINDING | TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_SRC;
+    cm_image_res.handle = images.add(cm_image);
 
     // Create a material that displays the composite texture
     let material = materials.add(StandardMaterial {

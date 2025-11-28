@@ -13,6 +13,7 @@ use super::{
     setup_metrics_channel, receive_metrics, AllDetectorMetrics,
 };
 use crate::gpu::{LogLabel, EdgeParams};
+use crate::cm::CmLabel;
 
 /// Plugin that adds composite rendering to the render graph
 pub struct CompositeRenderPlugin;
@@ -55,10 +56,11 @@ impl Plugin for CompositeRenderPlugin {
             .add_systems(Render, prepare_multi_readback.in_set(RenderSystems::Queue))
             .add_systems(Render, read_multi_readback.in_set(RenderSystems::Cleanup));
 
-        // Add composite node to render graph after LoG
+        // Add composite node to render graph after LoG and CM
         let mut render_graph = render_app.world_mut().resource_mut::<RenderGraph>();
         render_graph.add_node(CompositeLabel, CompositeNode::default());
         render_graph.add_node_edge(LogLabel, CompositeLabel);
+        render_graph.add_node_edge(CmLabel, CompositeLabel);
 
         // Add multi-readback node after composite
         render_graph.add_node(MultiReadbackLabel, MultiReadbackNode::default());
