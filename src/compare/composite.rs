@@ -160,7 +160,7 @@ pub fn prepare_composite(
     edge_params: Res<EdgeParams>,
     params_buffer: Option<Res<CompositeParamsBuffer>>,
 ) {
-    let (Some(filtered), Some(short_window), Some(sobel), Some(cm), Some(log), Some(composite)) = (
+    let (Some(_filtered), Some(short_window), Some(sobel), Some(cm), Some(log), Some(composite)) = (
         gpu_images.get(&filtered_image.handle),
         gpu_images.get(&short_window_image.handle),
         gpu_images.get(&sobel_image.handle),

@@ -15,7 +15,7 @@ use super::{
     CmaxSlamPipeline, CmaxSlamBindGroups, CmaxSlamBuffers,
     GpuContrastResult, ContrastReceiver, ContrastSender, ContrastValues,
 };
-use crate::gpu::{SobelImage, GpuEventBuffer, EventData};
+use crate::gpu::{CmImage, GpuEventBuffer, EventData};
 use crate::playback::PlaybackState;
 use crate::metrics::EdgeMetrics;
 use crate::ground_truth::GroundTruthConfig;
@@ -94,7 +94,7 @@ pub fn prepare_cmax_slam(
     render_queue: Res<RenderQueue>,
     pipeline: Res<CmaxSlamPipeline>,
     gpu_images: Res<RenderAssets<GpuImage>>,
-    sobel_image: Res<SobelImage>,
+    cm_image: Res<CmImage>,
     gpu_events: Option<Res<GpuEventBuffer>>,
     extracted: Res<ExtractedCmaxSlamParams>,
     buffers: Option<Res<CmaxSlamBuffers>>,
@@ -106,7 +106,7 @@ pub fn prepare_cmax_slam(
 
     let Some(gpu_events) = gpu_events else { return };
     let Some(event_buffer) = &gpu_events.buffer else { return };
-    let Some(sobel_gpu) = gpu_images.get(&sobel_image.handle) else { return };
+    let Some(cm_gpu) = gpu_images.get(&cm_image.handle) else { return };
 
     // IWE size: 3 slices (center, +delta, -delta) * WIDTH * HEIGHT * 4 bytes
     let iwe_size = (3 * WIDTH * HEIGHT * 4) as u64;
@@ -222,7 +222,7 @@ pub fn prepare_cmax_slam(
             },
             BindGroupEntry {
                 binding: 2,
-                resource: BindingResource::TextureView(&sobel_gpu.texture_view),
+                resource: BindingResource::TextureView(&cm_gpu.texture_view),
             },
         ],
     ));

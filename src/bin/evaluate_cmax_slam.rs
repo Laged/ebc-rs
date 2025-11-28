@@ -63,6 +63,7 @@ impl CpuCmaxSlam {
     ) -> (u32, f32) {
         const NUM_BINS: usize = 360;
         let mut angular_hist = vec![0.0f32; NUM_BINS];
+        let mut pixels_in_annulus = 0u32;
 
         // 1. Create angular histogram
         for y in 0..height {
@@ -81,6 +82,8 @@ impl CpuCmaxSlam {
                     continue;
                 }
 
+                pixels_in_annulus += 1;
+
                 // Calculate angle from centroid
                 let theta = dy.atan2(dx);
                 // Map [-π, π] to [0, 2π]
@@ -90,6 +93,8 @@ impl CpuCmaxSlam {
                 angular_hist[bin] += val as f32;
             }
         }
+
+        println!("    Pixels in annulus (r=[{:.0},{:.0}]): {}", radius_min, radius_max, pixels_in_annulus);
 
         // 2. Smooth histogram with simple moving average (5-bin window)
         let window_size = 5;
@@ -106,10 +111,15 @@ impl CpuCmaxSlam {
         }
 
         // 3. Find peaks (local maxima)
-        // Calculate threshold as 2x mean value
+        // Calculate threshold based on mean + std deviation
         let mean_val = smoothed.iter().sum::<f32>() / NUM_BINS as f32;
-        let threshold = mean_val * 2.0;
-        let min_spacing = 10; // Minimum 10 bins between peaks (~10 degrees)
+        let variance = smoothed.iter().map(|x| (x - mean_val).powi(2)).sum::<f32>() / NUM_BINS as f32;
+        let std_dev = variance.sqrt();
+        // Use mean + 1*std as threshold (more adaptive than 2x mean)
+        let threshold = mean_val + std_dev;
+        let min_spacing = 20; // Minimum 20 bins between peaks (~20 degrees) - blades are ~120° apart for 3 blades
+
+        println!("    Angular hist: mean={:.1}, std={:.1}, threshold={:.1}", mean_val, std_dev, threshold);
 
         let mut peaks = Vec::new();
         for i in 0..NUM_BINS {
@@ -121,7 +131,8 @@ impl CpuCmaxSlam {
             if curr > threshold && curr > prev && curr > next {
                 // Check minimum spacing from previous peaks
                 let too_close = peaks.iter().any(|&p: &usize| {
-                    let dist = ((i as i32 - p as i32).abs()).min(NUM_BINS as i32 - (i as i32 - p as i32).abs());
+                    let diff = (i as i32 - p as i32).abs();
+                    let dist = diff.min(NUM_BINS as i32 - diff);
                     dist < min_spacing
                 });
 
@@ -129,6 +140,11 @@ impl CpuCmaxSlam {
                     peaks.push(i);
                 }
             }
+        }
+
+        println!("    Found {} raw peaks above threshold", peaks.len());
+        if !peaks.is_empty() {
+            println!("    Peak positions (degrees): {:?}", peaks.iter().map(|&p| p).collect::<Vec<_>>());
         }
 
         // 4. Calculate peak prominence (how distinct are the peaks)
@@ -145,8 +161,19 @@ impl CpuCmaxSlam {
             }
         };
 
-        // 5. Each blade has 2 edges (leading + trailing)
-        let blade_count = (peaks.len() / 2) as u32;
+        // 5. For blade counting: each blade produces 2 edge peaks (leading + trailing)
+        // For 3 blades, expect 6 peaks spaced roughly evenly around 360°
+        // The simplest approach: count total peaks and divide by 2
+        // But we should validate that peaks are reasonably spaced
+        let blade_count = if peaks.is_empty() {
+            0
+        } else {
+            // For a fan with N blades rotating, we expect 2N edge peaks (leading + trailing per blade)
+            // These should be roughly evenly distributed around the circle
+            // Simply divide by 2 to get blade count
+            let estimated_blades = (peaks.len() as u32 + 1) / 2; // Round up
+            estimated_blades
+        };
 
         (blade_count, peak_prominence)
     }
@@ -187,8 +214,12 @@ impl CpuCmaxSlam {
             let theta = dy.atan2(dx);
             let dt = event.timestamp as f32 - t_ref;
 
-            // Warp: add rotation to compensate for rotation that occurred during dt
-            let theta_warped = theta + omega * dt;
+            // Warp: SUBTRACT rotation to compensate for rotation that occurred during dt
+            // If event occurred before t_ref (dt < 0), the blade was at an earlier angle,
+            // so we need to advance it (subtract negative = add)
+            // If event occurred after t_ref (dt > 0), the blade was at a later angle,
+            // so we need to bring it back (subtract positive)
+            let theta_warped = theta - omega * dt;
 
             // Convert back to Cartesian
             let x_warped = centroid.0 + r * theta_warped.cos();
@@ -308,26 +339,18 @@ fn main() -> Result<()> {
     let iwe_pixels = iwe.iter().filter(|&&v| v > 0).count();
     println!("  IWE non-zero pixels: {}", iwe_pixels);
 
-    // Detect edges on IWE
-    println!("Detecting edges...");
+    // Detect edges from IWE using Sobel for real-world applicability
+    println!("Detecting edges using Sobel...");
     let edges = cmax.detect_edges(&iwe);
 
-    // Threshold edges (use top 5% as edges)
-    let mut sorted_edges: Vec<f32> = edges.iter().copied().filter(|&e| e > 0.0).collect();
-    sorted_edges.sort_by(|a, b| b.partial_cmp(a).unwrap());
-    let threshold = if sorted_edges.len() > 100 {
-        sorted_edges[sorted_edges.len() / 20] // Top 5%
-    } else {
-        0.0
-    };
-
-    // Apply threshold
+    // Threshold edges - keep any pixel with gradient magnitude > 0
+    // The IWE with correct motion compensation should have sharp edges
     let detected_edges: Vec<f32> = edges.iter()
-        .map(|&e| if e >= threshold { e } else { 0.0 })
+        .map(|&e| if e > 0.5 { e } else { 0.0 })
         .collect();
 
     let edge_pixels = detected_edges.iter().filter(|&&e| e > 0.0).count();
-    println!("  Detected edge pixels: {} (threshold: {:.2})", edge_pixels, threshold);
+    println!("  Detected edge pixels: {}", edge_pixels);
 
     // Count blades from IWE
     println!("Counting blades from angular histogram...");
@@ -346,18 +369,27 @@ fn main() -> Result<()> {
     println!("  Correct: {}", blades_correct);
     println!("  Peak prominence: {:.2}", peak_prominence);
 
-    // Generate ground truth edge mask for the window
-    println!("Generating ground truth edges...");
-    let gt_mask = gt_config.generate_edge_mask_window(
-        window_start as f32,
-        window_end as f32,
-        WIDTH,
-        HEIGHT,
-        10, // Sample 10 time points across window
-    );
+    // Generate ground truth edge mask at the reference time
+    // For CMax-SLAM, the IWE warps all events to a single reference time (t_ref),
+    // so we compare against GT edges at that same reference time.
+    // This is the correct comparison because motion compensation should align
+    // all edges to their position at t_ref.
+    let t_ref = (window_start + window_end) as f32 / 2.0;
+    println!("Generating ground truth edges at t_ref = {:.0} μs...", t_ref);
+    let gt_mask = gt_config.generate_edge_mask(t_ref, WIDTH, HEIGHT);
 
     let gt_pixels = gt_mask.iter().filter(|&&e| e).count();
     println!("  Ground truth edge pixels: {}", gt_pixels);
+
+    // Debug: check overlap between IWE and GT
+    let mut overlap_count = 0u32;
+    for (&is_gt, &iwe_val) in gt_mask.iter().zip(iwe.iter()) {
+        if is_gt && iwe_val > 0 {
+            overlap_count += 1;
+        }
+    }
+    println!("  GT pixels with IWE overlap: {} / {} ({:.1}%)",
+             overlap_count, gt_pixels, 100.0 * overlap_count as f32 / gt_pixels as f32);
 
     // Compute metrics
     println!();

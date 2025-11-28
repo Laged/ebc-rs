@@ -6,7 +6,7 @@ use bevy::render::{
     render_asset::RenderAssets,
     texture::GpuImage,
 };
-use super::resources::{FilteredSurfaceImage, SurfaceImage, ShortWindowSurfaceImage, EdgeParams};
+use super::resources::{FilteredSurfaceImage, ShortWindowSurfaceImage, EdgeParams};
 use super::types::GpuParams;
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]

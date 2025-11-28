@@ -69,6 +69,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Edge magnitude
     let magnitude = sqrt(gx * gx + gy * gy);
 
-    // Output edge magnitude (will be thresholded downstream)
+    // Output Sobel edge magnitude
     textureStore(output_texture, vec2<i32>(x, y), vec4<f32>(magnitude));
 }

@@ -1,6 +1,6 @@
 //! CMax-SLAM: Motion-compensated edge detection using Contrast Maximization
 //!
-//! Replaces the SOBEL quadrant with gradient-optimized motion compensation.
+//! Outputs to CmImage (bottom-left quadrant) for motion-compensated edges.
 
 mod resources;
 mod pipeline;
@@ -54,8 +54,8 @@ impl Plugin for CmaxSlamPlugin {
             .add_systems(Render, readback_contrast_results.in_set(RenderSystems::Prepare).before(prepare_cmax_slam))
             .add_systems(Render, prepare_cmax_slam.in_set(RenderSystems::Prepare));
 
-        // Add to render graph AFTER Sobel - CMax-SLAM overwrites SobelImage
-        // This ensures motion-compensated edges replace raw Sobel output
+        // Add to render graph AFTER Sobel - CMax-SLAM outputs to CmImage (bottom-left)
+        // This keeps Sobel in top-right and CMax-SLAM motion-compensated edges in bottom-left
         let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
         graph.add_node(CmaxSlamLabel, CmaxSlamNode::default());
         graph.add_node_edge(SobelLabel, CmaxSlamLabel);
