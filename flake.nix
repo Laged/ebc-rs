@@ -94,12 +94,42 @@
             export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
             exec cargo run --release -- "''${1:-data/fan/fan_const_rpm.dat}"
           '';
+          evaluate_quick_script = pkgs.writeShellScriptBin "evaluate_quick" ''
+            export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+            exec cargo run --release --bin evaluate_cmax_slam -- \
+              --data data/synthetic/fan_test.dat \
+              --output results/cmax_quick.csv "$@"
+          '';
+          evaluate_sweep_script = pkgs.writeShellScriptBin "evaluate_sweep" ''
+            export LD_LIBRARY_PATH="${ldPath}:''${LD_LIBRARY_PATH:-}"
+
+            echo "Generating test datasets..."
+            for rpm in 600 900 1200 1500 2000; do
+              for blades in 2 3 4 5; do
+                cargo run --release --bin generate_synthetic -- \
+                  --rpm $rpm --blades $blades \
+                  --output "data/synthetic/sweep_rpm''${rpm}_b''${blades}.dat"
+              done
+            done
+
+            echo "Running evaluation..."
+            rm -f results/cmax_sweep.csv
+            for f in data/synthetic/sweep_*.dat; do
+              cargo run --release --bin evaluate_cmax_slam -- \
+                --data "$f" \
+                --output results/cmax_sweep.csv "$@"
+            done
+
+            echo "Results written to results/cmax_sweep.csv"
+          '';
           workflowScripts = if pkgs.stdenv.isLinux then [
             generate_data_script
             optimise_params_script
             compare_live_script
             compare_real_script
             visualize_script
+            evaluate_quick_script
+            evaluate_sweep_script
           ] else [ ];
         in {
           default = pkgs.mkShell {
@@ -127,6 +157,8 @@
               echo "  compare_live    - Compare detectors (synthetic)"
               echo "  compare_real    - Compare detectors (real fan data)"
               echo "  visualize       - Main visualizer"
+              echo "  evaluate_quick  - Quick single-dataset evaluation"
+              echo "  evaluate_sweep  - Full parameter sweep evaluation"
             '';
           };
         });
@@ -225,6 +257,44 @@
             program = toString (pkgs.writeShellScript "visualize" ''
               ${envSetup}
               exec cargo run --release -- "''${1:-data/fan/fan_const_rpm.dat}"
+            '');
+          };
+
+          # Quick single-dataset evaluation
+          evaluate_quick = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "evaluate_quick" ''
+              ${envSetup}
+              cargo run --release --bin evaluate_cmax_slam -- \
+                --data data/synthetic/fan_test.dat \
+                --output results/cmax_quick.csv
+            '');
+          };
+
+          # Full parameter sweep (generates datasets then evaluates)
+          evaluate_sweep = {
+            type = "app";
+            program = toString (pkgs.writeShellScript "evaluate_sweep" ''
+              ${envSetup}
+
+              echo "Generating test datasets..."
+              for rpm in 600 900 1200 1500 2000; do
+                for blades in 2 3 4 5; do
+                  cargo run --release --bin generate_synthetic -- \
+                    --rpm $rpm --blades $blades \
+                    --output "data/synthetic/sweep_rpm''${rpm}_b''${blades}.dat"
+                done
+              done
+
+              echo "Running evaluation..."
+              rm -f results/cmax_sweep.csv
+              for f in data/synthetic/sweep_*.dat; do
+                cargo run --release --bin evaluate_cmax_slam -- \
+                  --data "$f" \
+                  --output results/cmax_sweep.csv
+              done
+
+              echo "Results written to results/cmax_sweep.csv"
             '');
           };
         });
