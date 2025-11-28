@@ -491,7 +491,7 @@ pub fn readback_contrast_results(
                 );
             }
 
-            // Convert to float contrast values
+            // Convert to float contrast values and pack all 8 values
             let values = ContrastValues {
                 center: result.sum_sq_center as f32,
                 omega_plus: result.sum_sq_omega_plus as f32,
@@ -500,6 +500,7 @@ pub fn readback_contrast_results(
                 cx_minus: result.sum_sq_cx_minus as f32,
                 cy_plus: result.sum_sq_cy_plus as f32,
                 cy_minus: result.sum_sq_cy_minus as f32,
+                pixel_count: result.pixel_count,
             };
 
             // Send to main world

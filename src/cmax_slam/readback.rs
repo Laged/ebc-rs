@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-/// Contrast values from GPU reduction (7 IWE slices)
+/// Contrast values from GPU reduction (7 IWE slices + pixel count)
 #[derive(Clone, Debug, Default)]
 pub struct ContrastValues {
     pub center: f32,
@@ -14,6 +14,7 @@ pub struct ContrastValues {
     pub cx_minus: f32,
     pub cy_plus: f32,
     pub cy_minus: f32,
+    pub pixel_count: u32,
 }
 
 /// Main world resource - receives contrast values from render world
