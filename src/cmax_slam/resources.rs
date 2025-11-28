@@ -2,6 +2,7 @@
 
 use bevy::prelude::*;
 use bytemuck::{Pod, Zeroable};
+use std::collections::VecDeque;
 
 /// CMax-SLAM parameters (CPU-side control)
 #[derive(Resource, Clone)]
@@ -24,7 +25,7 @@ impl Default for CmaxSlamParams {
     fn default() -> Self {
         Self {
             enabled: true,
-            learning_rate: 0.001,
+            learning_rate: 0.5,
             max_iterations: 10,
             convergence_threshold: 1e-6,
             smoothing_alpha: 0.3,
@@ -34,7 +35,7 @@ impl Default for CmaxSlamParams {
 }
 
 /// CMax-SLAM state (persisted across frames)
-#[derive(Resource, Default, Clone)]
+#[derive(Resource, Clone)]
 pub struct CmaxSlamState {
     /// Current estimated angular velocity (rad/us)
     pub omega: f32,
@@ -48,6 +49,30 @@ pub struct CmaxSlamState {
     pub iterations: u32,
     /// Whether optimization has converged
     pub converged: bool,
+
+    // Phase 1: Optimizer fields
+    /// Perturbation size for numerical gradient (rad/μs)
+    pub delta_omega: f32,
+    /// Recent omega values for convergence detection
+    pub omega_history: VecDeque<f32>,
+    /// Whether cold start initialization has occurred
+    pub initialized: bool,
+}
+
+impl Default for CmaxSlamState {
+    fn default() -> Self {
+        Self {
+            omega: 0.0,
+            centroid: Vec2::new(640.0, 360.0),
+            contrast: 0.0,
+            gradient: 0.0,
+            iterations: 0,
+            converged: false,
+            delta_omega: 1e-6,
+            omega_history: VecDeque::with_capacity(16),
+            initialized: false,
+        }
+    }
 }
 
 /// GPU-compatible CMax-SLAM parameters
