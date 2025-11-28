@@ -478,3 +478,80 @@ impl GroundTruthMetrics {
     }
 }
 
+#[cfg(test)]
+mod task9_tests {
+    use super::{GroundTruthConfig, CentroidMotion};
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_static_centroid() {
+        let config = GroundTruthConfig {
+            enabled: true,
+            center_x: 640.0,
+            center_y: 360.0,
+            motion: None,
+            ..Default::default()
+        };
+        
+        let c0 = config.centroid_at_time(0.0);
+        let c1 = config.centroid_at_time(1_000_000.0);
+        
+        assert_eq!(c0.x, 640.0);
+        assert_eq!(c0.y, 360.0);
+        assert_eq!(c1.x, 640.0);
+        assert_eq!(c1.y, 360.0);
+    }
+
+    #[test]
+    fn test_linear_drift() {
+        let config = GroundTruthConfig {
+            enabled: true,
+            center_x: 640.0,
+            center_y: 360.0,
+            motion: Some(CentroidMotion::LinearDrift {
+                velocity_x: 50.0,
+                velocity_y: 20.0,
+            }),
+            ..Default::default()
+        };
+        
+        let c0 = config.centroid_at_time(0.0);
+        let c1 = config.centroid_at_time(1_000_000.0); // 1 second
+        let c2 = config.centroid_at_time(2_000_000.0); // 2 seconds
+        
+        assert_eq!(c0.x, 640.0);
+        assert_eq!(c0.y, 360.0);
+        assert!((c1.x - 690.0).abs() < 0.01);
+        assert!((c1.y - 380.0).abs() < 0.01);
+        assert!((c2.x - 740.0).abs() < 0.01);
+        assert!((c2.y - 400.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_backward_compatibility_no_motion() {
+        // fan_test.dat should not have motion field
+        let path = PathBuf::from("data/synthetic/fan_test.dat");
+        if let Some(config) = GroundTruthConfig::load_from_sidecar(&path) {
+            assert!(config.motion.is_none());
+            let c = config.centroid_at_time(0.0);
+            assert_eq!(c.x, 640.0);
+            assert_eq!(c.y, 360.0);
+        }
+    }
+
+    #[test]
+    fn test_motion_field_present() {
+        // fan_drift.dat should have motion field
+        let path = PathBuf::from("data/synthetic/fan_drift.dat");
+        if let Some(config) = GroundTruthConfig::load_from_sidecar(&path) {
+            assert!(config.motion.is_some());
+            match config.motion {
+                Some(CentroidMotion::LinearDrift { velocity_x, velocity_y }) => {
+                    assert_eq!(velocity_x, 50.0);
+                    assert_eq!(velocity_y, 20.0);
+                }
+                _ => panic!("Expected LinearDrift motion"),
+            }
+        }
+    }
+}
