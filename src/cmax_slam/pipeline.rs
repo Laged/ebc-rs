@@ -232,7 +232,7 @@ impl Node for CmaxSlamNode {
             return Ok(());
         };
 
-        let (Some(warp_bg), Some(output_bg)) = (&bind_groups.warp_contrast, &bind_groups.output) else {
+        let (Some(warp_bg), Some(output_bg), Some(reduce_bg)) = (&bind_groups.warp_contrast, &bind_groups.output, &bind_groups.reduce) else {
             return Ok(());
         };
 
@@ -241,6 +241,9 @@ impl Node for CmaxSlamNode {
             return Ok(());
         };
         let Some(output_pl) = pipeline_cache.get_compute_pipeline(pipeline.output_pipeline) else {
+            return Ok(());
+        };
+        let Some(reduce_pl) = pipeline_cache.get_compute_pipeline(pipeline.reduce_pipeline) else {
             return Ok(());
         };
 
@@ -271,7 +274,35 @@ impl Node for CmaxSlamNode {
             pass.dispatch_workgroups(4096, 1, 1);
         }
 
-        // Pass 2: Copy best IWE to output texture
+        // Clear contrast result buffer before reduction
+        encoder.clear_buffer(&buffers.contrast_result, 0, None);
+
+        // Pass 2: Reduction - compute sum of squares for each IWE slice
+        {
+            let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
+                label: Some("cmax_slam_reduce"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(reduce_pl);
+            pass.set_bind_group(0, reduce_bg, &[]);
+
+            // Dispatch enough workgroups to cover all pixels
+            // SLICE_SIZE = 1280 * 720 = 921600
+            // Workgroups needed = ceil(921600 / 256) = 3600
+            let workgroups = (921600 + 255) / 256;
+            pass.dispatch_workgroups(workgroups, 1, 1);
+        }
+
+        // Copy result to staging buffer for async readback
+        encoder.copy_buffer_to_buffer(
+            &buffers.contrast_result,
+            0,
+            &buffers.contrast_staging,
+            0,
+            std::mem::size_of::<super::GpuContrastResult>() as u64,
+        );
+
+        // Pass 3: Copy best IWE to output texture
         {
             let mut pass = encoder.begin_compute_pass(&ComputePassDescriptor {
                 label: Some("cmax_slam_output"),
