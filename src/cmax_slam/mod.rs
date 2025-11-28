@@ -5,10 +5,15 @@
 mod resources;
 mod pipeline;
 mod systems;
+mod readback;
 
 pub use resources::*;
 pub use pipeline::*;
 pub use systems::*;
+pub use readback::{
+    ContrastValues, ContrastReceiver, ContrastSender,
+    GpuContrastResult, create_contrast_channel,
+};
 
 use bevy::prelude::*;
 use bevy::render::{
