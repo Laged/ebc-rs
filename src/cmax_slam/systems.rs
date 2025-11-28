@@ -12,6 +12,7 @@ use bevy::render::{
 use super::{
     CmaxSlamParams, CmaxSlamState, GpuCmaxSlamParams,
     CmaxSlamPipeline, CmaxSlamBindGroups, CmaxSlamBuffers,
+    GpuContrastResult,
 };
 use crate::gpu::{SobelImage, GpuEventBuffer, EventData};
 use crate::playback::PlaybackState;
@@ -110,6 +111,9 @@ pub fn prepare_cmax_slam(
     let iwe_size = (3 * WIDTH * HEIGHT * 4) as u64;
     let contrast_size = std::mem::size_of::<super::GpuCmaxSlamResult>() as u64;
 
+    // Contrast result buffer size (4 x u32 = 16 bytes)
+    let contrast_result_size = std::mem::size_of::<GpuContrastResult>() as u64;
+
     // Create or get buffers
     let buffers = if let Some(existing) = buffers {
         existing.into_inner().clone()
@@ -131,6 +135,18 @@ pub fn prepare_cmax_slam(
                 label: Some("cmax_slam_contrast"),
                 size: contrast_size,
                 usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            }),
+            contrast_result: render_device.create_buffer(&BufferDescriptor {
+                label: Some("cmax_slam_contrast_result"),
+                size: contrast_result_size,
+                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            }),
+            contrast_staging: render_device.create_buffer(&BufferDescriptor {
+                label: Some("cmax_slam_contrast_staging"),
+                size: contrast_result_size,
+                usage: BufferUsages::MAP_READ | BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }),
         };
@@ -206,6 +222,21 @@ pub fn prepare_cmax_slam(
             BindGroupEntry {
                 binding: 2,
                 resource: BindingResource::TextureView(&sobel_gpu.texture_view),
+            },
+        ],
+    ));
+
+    bind_groups.reduce = Some(render_device.create_bind_group(
+        "cmax_slam_reduce_bind_group",
+        &pipeline.reduce_layout,
+        &[
+            BindGroupEntry {
+                binding: 0,
+                resource: buffers.iwe.as_entire_binding(),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: buffers.contrast_result.as_entire_binding(),
             },
         ],
     ));

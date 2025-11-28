@@ -209,8 +209,10 @@ pub struct CmaxSlamBindGroups {
 #[derive(Resource, Clone)]
 pub struct CmaxSlamBuffers {
     pub params: Buffer,
-    pub iwe: Buffer,         // 3 slices: center, +delta, -delta
-    pub contrast: Buffer,    // GpuCmaxSlamResult
+    pub iwe: Buffer,              // 3 slices: center, +delta, -delta
+    pub contrast: Buffer,         // GpuCmaxSlamResult
+    pub contrast_result: Buffer,  // Reduction output (STORAGE | COPY_SRC)
+    pub contrast_staging: Buffer, // Async readback (MAP_READ | COPY_DST)
 }
 
 /// CMax-SLAM render node
