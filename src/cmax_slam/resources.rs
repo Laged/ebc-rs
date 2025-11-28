@@ -57,6 +57,20 @@ pub struct CmaxSlamState {
     pub omega_history: VecDeque<f32>,
     /// Whether cold start initialization has occurred
     pub initialized: bool,
+
+    // EMA smoothing
+    /// Tracks smoothed omega value (initialized to omega on first use)
+    pub omega_ema: f32,
+    /// Smoothing factor (default 0.2)
+    pub ema_alpha: f32,
+
+    // Step clamping
+    /// Max step as fraction of omega (default 0.02)
+    pub max_step_fraction: f32,
+    /// For debugging/UI display
+    pub last_raw_step: f32,
+    /// Flag for UI
+    pub step_was_clamped: bool,
 }
 
 impl Default for CmaxSlamState {
@@ -71,6 +85,11 @@ impl Default for CmaxSlamState {
             delta_omega: 1e-6,
             omega_history: VecDeque::with_capacity(16),
             initialized: false,
+            omega_ema: 0.0,
+            ema_alpha: 0.2,
+            max_step_fraction: 0.02,
+            last_raw_step: 0.0,
+            step_was_clamped: false,
         }
     }
 }
