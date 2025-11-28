@@ -9,6 +9,7 @@ use crate::gpu::EdgeParams;
 use crate::playback::PlaybackState;
 use crate::cm::{CmParams, CmResult};
 use crate::cmax_slam::{CmaxSlamParams, CmaxSlamState};
+use crate::ground_truth::GroundTruthConfig;
 
 /// Resource tracking which data file is active
 #[derive(Resource, Default)]
@@ -87,8 +88,9 @@ pub fn draw_edge_controls(
     mut contexts: EguiContexts,
     mut edge_params: ResMut<EdgeParams>,
     mut cm_params: ResMut<CmParams>,
-    mut cmax_params: Option<ResMut<CmaxSlamParams>>,
+    cmax_params: Option<ResMut<CmaxSlamParams>>,
     cmax_state: Option<Res<CmaxSlamState>>,
+    gt_config: Option<Res<GroundTruthConfig>>,
 ) {
     let ctx = contexts.ctx_mut().expect("Failed to get egui context");
 
@@ -98,7 +100,7 @@ pub fn draw_edge_controls(
             // Detector visibility toggles
             ui.heading("Visibility");
             ui.checkbox(&mut edge_params.show_raw, "Show Raw (Q1)");
-            ui.checkbox(&mut edge_params.show_sobel, "Show Sobel (Q2)");
+            ui.checkbox(&mut edge_params.show_sobel, "Show CMax-SLAM (Q2)");
             ui.checkbox(&mut edge_params.show_canny, "Show CM (Q3)");
             ui.checkbox(&mut edge_params.show_log, "Show LoG (Q4)");
 
@@ -146,10 +148,71 @@ pub fn draw_edge_controls(
 
                     if let Some(state) = cmax_state.as_ref() {
                         ui.separator();
-                        let rpm = state.omega.abs() * 60.0 / std::f32::consts::TAU * 1e6;
-                        ui.label(format!("Omega: {:.6} rad/us", state.omega));
-                        ui.label(format!("RPM: {:.1}", rpm));
-                        ui.label(format!("Converged: {}", state.converged));
+                        ui.heading("Estimation");
+
+                        // Calculate estimated RPM
+                        let est_rpm = state.omega.abs() * 60.0 / std::f32::consts::TAU * 1e6;
+
+                        // Display estimated RPM prominently
+                        ui.horizontal(|ui| {
+                            ui.label("Est RPM:");
+                            ui.label(
+                                egui::RichText::new(format!("{:.1}", est_rpm))
+                                    .size(20.0)
+                                    .strong()
+                            );
+                        });
+
+                        // Display omega
+                        ui.label(format!("Omega: {:.6} rad/μs", state.omega));
+
+                        // Display convergence status with color coding
+                        let convergence_color = if state.converged {
+                            egui::Color32::GREEN
+                        } else {
+                            egui::Color32::YELLOW
+                        };
+                        ui.label(
+                            egui::RichText::new(format!("Converged: {}", state.converged))
+                                .color(convergence_color)
+                        );
+
+                        // Display contrast value
+                        ui.label(format!("Contrast: {:.3}", state.contrast));
+
+                        // Ground truth comparison (if available)
+                        if let Some(gt) = gt_config.as_ref() {
+                            if gt.enabled && gt.rpm > 0.0 {
+                                ui.separator();
+                                ui.heading("Ground Truth Comparison");
+
+                                // Display ground truth RPM
+                                ui.label(format!("GT RPM: {:.1}", gt.rpm));
+                                ui.label(format!("GT Blades: {}", gt.blade_count));
+
+                                // Calculate and display RPM error
+                                let rpm_error_pct = ((est_rpm - gt.rpm).abs() / gt.rpm) * 100.0;
+
+                                // Color code the error based on thresholds
+                                let error_color = if rpm_error_pct < 1.0 {
+                                    egui::Color32::from_rgb(0, 255, 0)  // Green < 1%
+                                } else if rpm_error_pct < 5.0 {
+                                    egui::Color32::from_rgb(255, 200, 0)  // Yellow < 5%
+                                } else {
+                                    egui::Color32::from_rgb(255, 0, 0)  // Red >= 5%
+                                };
+
+                                ui.horizontal(|ui| {
+                                    ui.label("RPM Error:");
+                                    ui.label(
+                                        egui::RichText::new(format!("{:.2}%", rpm_error_pct))
+                                            .color(error_color)
+                                            .size(18.0)
+                                            .strong()
+                                    );
+                                });
+                            }
+                        }
                     }
                 });
             }
@@ -198,9 +261,9 @@ pub fn draw_metrics_overlay(
         panel_width, panel_height
     );
 
-    // Q2 Top-right (SOBEL): position at bottom-left of quadrant (near center)
+    // Q2 Top-right (CMax-SLAM): position at bottom-left of quadrant (near center)
     draw_detector_panel(
-        ctx, "SOBEL", &metrics.sobel,
+        ctx, "CMax-SLAM", &metrics.sobel,
         center_x + margin,                // Right of center line
         center_y - panel_height - margin, // Above center line
         panel_width, panel_height
