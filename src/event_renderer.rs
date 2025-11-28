@@ -117,6 +117,7 @@ fn setup_scene(
     mut materials: ResMut<Assets<EventMaterial>>,
     mut images: ResMut<Assets<Image>>,
     mut surface_image_res: ResMut<SurfaceImage>,
+    mut short_window_surface_res: ResMut<crate::gpu::ShortWindowSurfaceImage>,
     mut filtered_surface_res: ResMut<FilteredSurfaceImage>,
     mut sobel_image_res: ResMut<SobelImage>,
     mut canny_image_res: ResMut<CannyImage>,
@@ -150,6 +151,19 @@ fn setup_scene(
         TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING;
     let surface_handle = images.add(surface_image);
     surface_image_res.handle = surface_handle.clone();
+
+    // Short-window surface texture (R32Uint)
+    let mut short_window_image = Image::new_fill(
+        size,
+        TextureDimension::D2,
+        &[0, 0, 0, 0],
+        TextureFormat::R32Uint,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    short_window_image.texture_descriptor.usage =
+        TextureUsages::COPY_DST | TextureUsages::TEXTURE_BINDING;
+    let short_window_handle = images.add(short_window_image);
+    short_window_surface_res.handle = short_window_handle.clone();
 
     // Filtered surface texture (same format as surface - R32Uint)
     let mut filtered_image = Image::new_fill(

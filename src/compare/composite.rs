@@ -8,7 +8,7 @@ use bevy::render::render_resource::*;
 use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue};
 use bevy::render::texture::GpuImage;
 
-use crate::gpu::{FilteredSurfaceImage, SobelImage, CmImage, LogImage, EdgeParams};
+use crate::gpu::{FilteredSurfaceImage, SobelImage, CmImage, LogImage, EdgeParams, ShortWindowSurfaceImage};
 
 /// Composite shader parameters (matching WGSL layout)
 #[repr(C)]
@@ -152,6 +152,7 @@ pub fn prepare_composite(
     render_queue: Res<RenderQueue>,
     gpu_images: Res<RenderAssets<GpuImage>>,
     filtered_image: Res<FilteredSurfaceImage>,
+    short_window_image: Res<ShortWindowSurfaceImage>,
     sobel_image: Res<SobelImage>,
     cm_image: Res<CmImage>,
     log_image: Res<LogImage>,
@@ -159,8 +160,9 @@ pub fn prepare_composite(
     edge_params: Res<EdgeParams>,
     params_buffer: Option<Res<CompositeParamsBuffer>>,
 ) {
-    let (Some(filtered), Some(sobel), Some(cm), Some(log), Some(composite)) = (
+    let (Some(filtered), Some(short_window), Some(sobel), Some(cm), Some(log), Some(composite)) = (
         gpu_images.get(&filtered_image.handle),
+        gpu_images.get(&short_window_image.handle),
         gpu_images.get(&sobel_image.handle),
         gpu_images.get(&cm_image.handle),
         gpu_images.get(&log_image.handle),
@@ -197,7 +199,7 @@ pub fn prepare_composite(
         &[
             BindGroupEntry {
                 binding: 0,
-                resource: BindingResource::TextureView(&filtered.texture_view),
+                resource: BindingResource::TextureView(&short_window.texture_view),
             },
             BindGroupEntry {
                 binding: 1,
