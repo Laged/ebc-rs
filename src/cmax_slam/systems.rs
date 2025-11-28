@@ -29,6 +29,7 @@ pub struct ExtractedCmaxSlamParams {
     pub centroid: Vec2,
     pub omega: f32,
     pub delta_omega: f32,
+    pub delta_pos: f32,
     pub edge_weight: f32,
     pub window_start: u32,
     pub window_end: u32,
@@ -75,10 +76,14 @@ pub fn extract_cmax_slam_params(
     // Delta for numerical gradient: 1% of omega or minimum value
     let delta_omega = (omega.abs() * 0.01).max(1e-8);
 
+    // Delta for centroid position (pixels)
+    let delta_pos = 3.0;
+
     commands.insert_resource(ExtractedCmaxSlamParams {
         centroid,
         omega,
         delta_omega,
+        delta_pos,
         edge_weight: params.edge_weight,
         window_start,
         window_end,
@@ -108,11 +113,11 @@ pub fn prepare_cmax_slam(
     let Some(event_buffer) = &gpu_events.buffer else { return };
     let Some(cm_gpu) = gpu_images.get(&cm_image.handle) else { return };
 
-    // IWE size: 3 slices (center, +delta, -delta) * WIDTH * HEIGHT * 4 bytes
-    let iwe_size = (3 * WIDTH * HEIGHT * 4) as u64;
+    // IWE size: 7 slices (center, omega±, cx±, cy±) * WIDTH * HEIGHT * 4 bytes
+    let iwe_size = (7 * WIDTH * HEIGHT * 4) as u64;
     let contrast_size = std::mem::size_of::<super::GpuCmaxSlamResult>() as u64;
 
-    // Contrast result buffer size (4 x u32 = 16 bytes)
+    // Contrast result buffer size (8 x u32 = 32 bytes)
     let contrast_result_size = std::mem::size_of::<GpuContrastResult>() as u64;
 
     // Create or get buffers
@@ -163,11 +168,12 @@ pub fn prepare_cmax_slam(
         t_ref,
         omega: extracted.omega,
         delta_omega: extracted.delta_omega,
+        delta_pos: extracted.delta_pos,
         edge_weight: extracted.edge_weight,
         window_start: extracted.window_start,
         window_end: extracted.window_end,
         event_count: extracted.event_count,
-        _pad: [0; 3],
+        _pad: [0; 2],
     };
 
     // DEBUG: Log params every ~60 frames
@@ -310,8 +316,8 @@ pub fn receive_contrast_results(
         state.contrast = contrast.center;
 
         let v_c = contrast.center;
-        let v_p = contrast.plus;
-        let v_m = contrast.minus;
+        let v_p = contrast.omega_plus;
+        let v_m = contrast.omega_minus;
 
         // Skip if no data
         if v_c < 1.0 {
@@ -419,22 +425,30 @@ pub fn readback_contrast_results(
     if ready.load(Ordering::Acquire) {
         let data = slice.get_mapped_range();
 
-        if data.len() >= 16 {
-            let result: &GpuContrastResult = bytemuck::from_bytes(&data[..16]);
+        if data.len() >= 32 {
+            let result: &GpuContrastResult = bytemuck::from_bytes(&data[..32]);
 
             // Debug log every 60 frames
             if readback_state.frame_count % 60 == 0 {
                 info!(
-                    "Contrast readback: center={}, plus={}, minus={}, pixels={}",
-                    result.sum_sq_center, result.sum_sq_plus, result.sum_sq_minus, result.pixel_count
+                    "Contrast readback: center={}, omega±({},{}), cx±({},{}), cy±({},{}), pixels={}",
+                    result.sum_sq_center,
+                    result.sum_sq_omega_plus, result.sum_sq_omega_minus,
+                    result.sum_sq_cx_plus, result.sum_sq_cx_minus,
+                    result.sum_sq_cy_plus, result.sum_sq_cy_minus,
+                    result.pixel_count
                 );
             }
 
             // Convert to float contrast values
             let values = ContrastValues {
                 center: result.sum_sq_center as f32,
-                plus: result.sum_sq_plus as f32,
-                minus: result.sum_sq_minus as f32,
+                omega_plus: result.sum_sq_omega_plus as f32,
+                omega_minus: result.sum_sq_omega_minus as f32,
+                cx_plus: result.sum_sq_cx_plus as f32,
+                cx_minus: result.sum_sq_cx_minus as f32,
+                cy_plus: result.sum_sq_cy_plus as f32,
+                cy_minus: result.sum_sq_cy_minus as f32,
             };
 
             // Send to main world

@@ -56,7 +56,7 @@ impl FromWorld for CmaxSlamPipeline {
                     },
                     count: None,
                 },
-                // IWE buffer (3 slices: center, plus, minus)
+                // IWE buffer (7 slices: center, omega±, cx±, cy±)
                 BindGroupLayoutEntry {
                     binding: 2,
                     visibility: ShaderStages::COMPUTE,
@@ -209,7 +209,7 @@ pub struct CmaxSlamBindGroups {
 #[derive(Resource, Clone)]
 pub struct CmaxSlamBuffers {
     pub params: Buffer,
-    pub iwe: Buffer,              // 3 slices: center, +delta, -delta
+    pub iwe: Buffer,              // 7 slices: center, omega±, cx±, cy±
     pub contrast: Buffer,         // GpuCmaxSlamResult
     pub contrast_result: Buffer,  // Reduction output (STORAGE | COPY_SRC)
     pub contrast_staging: Buffer, // Async readback (MAP_READ | COPY_DST)
