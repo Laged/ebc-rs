@@ -334,7 +334,7 @@ pub fn receive_contrast_results(
         };
 
         // CLAMP step to ±(max_step_fraction * omega), with minimum for cold start
-        let max_step = (state.omega.abs() * state.max_step_fraction).max(1e-7);
+        let max_step = (state.omega.abs() * params.max_step_fraction).max(1e-7);
         let clamped_step = raw_step.clamp(-max_step, max_step);
         state.last_raw_step = raw_step;
         state.step_was_clamped = raw_step.abs() > max_step;
@@ -343,7 +343,7 @@ pub fn receive_contrast_results(
         let omega_raw = state.omega + clamped_step;
 
         // EMA smooth the update
-        state.omega = state.ema_alpha * omega_raw + (1.0 - state.ema_alpha) * state.omega;
+        state.omega = params.ema_alpha * omega_raw + (1.0 - params.ema_alpha) * state.omega;
 
         // Update delta for next frame (1% of omega)
         state.delta_omega = (state.omega.abs() * 0.01).max(1e-8);

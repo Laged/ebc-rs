@@ -19,6 +19,10 @@ pub struct CmaxSlamParams {
     pub smoothing_alpha: f32,
     /// Weight for edge correlation term
     pub edge_weight: f32,
+    /// EMA smoothing factor (0=frozen, 1=no smoothing)
+    pub ema_alpha: f32,
+    /// Max step as fraction of omega
+    pub max_step_fraction: f32,
 }
 
 impl Default for CmaxSlamParams {
@@ -30,6 +34,8 @@ impl Default for CmaxSlamParams {
             convergence_threshold: 1e-6,
             smoothing_alpha: 0.3,
             edge_weight: 5.0,
+            ema_alpha: 0.2,
+            max_step_fraction: 0.02,
         }
     }
 }
