@@ -88,8 +88,8 @@ impl CpuCmaxSlam {
             let theta = dy.atan2(dx);
             let dt = event.timestamp as f32 - t_ref;
 
-            // Warp: subtract rotation that occurred during dt
-            let theta_warped = theta - omega * dt;
+            // Warp: add rotation to compensate for rotation that occurred during dt
+            let theta_warped = theta + omega * dt;
 
             // Convert back to Cartesian
             let x_warped = centroid.0 + r * theta_warped.cos();
