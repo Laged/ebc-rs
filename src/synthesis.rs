@@ -15,6 +15,43 @@ use std::f32::consts::PI;
 use std::fs::File;
 use std::io::Write;
 use std::path::Path;
+use serde::{Serialize, Deserialize};
+
+/// Centroid motion configuration for synthetic data
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum CentroidMotion {
+    #[serde(rename = "static")]
+    Static,
+    #[serde(rename = "linear_drift")]
+    LinearDrift { velocity_x: f32, velocity_y: f32 },
+    #[serde(rename = "oscillation")]
+    Oscillation {
+        amplitude_x: f32,
+        amplitude_y: f32,
+        frequency_hz: f32,
+        phase_offset: f32
+    },
+}
+
+impl CentroidMotion {
+    /// Compute centroid position at given time
+    pub fn centroid_at_time(&self, t_secs: f32, base_x: f32, base_y: f32) -> (f32, f32) {
+        match self {
+            CentroidMotion::Static => (base_x, base_y),
+            CentroidMotion::LinearDrift { velocity_x, velocity_y } => {
+                (base_x + velocity_x * t_secs, base_y + velocity_y * t_secs)
+            }
+            CentroidMotion::Oscillation { amplitude_x, amplitude_y, frequency_hz, phase_offset } => {
+                let phase = 2.0 * PI * frequency_hz * t_secs + phase_offset;
+                (
+                    base_x + amplitude_x * phase.cos(),
+                    base_y + amplitude_y * phase.sin()
+                )
+            }
+        }
+    }
+}
 
 /// Configuration for synthetic fan data generation
 #[derive(Debug, Clone)]
@@ -27,6 +64,8 @@ pub struct SynthConfig {
     pub noise: f32,
     /// Duration of generated data in seconds
     pub duration_secs: f32,
+    /// Centroid motion configuration
+    pub motion: CentroidMotion,
 }
 
 impl Default for SynthConfig {
@@ -36,6 +75,7 @@ impl Default for SynthConfig {
             blade_count: 3,
             noise: 0.0,
             duration_secs: 2.0,
+            motion: CentroidMotion::Static,
         }
     }
 }
@@ -103,8 +143,8 @@ pub fn generate_fan_data_with_config(
     let angular_velocity = rps * 2.0 * PI; // radians per second
     let blade_count = config.blade_count;
     let radius = 200.0; // pixels
-    let center_x = 640.0; // center of 1280x720 frame
-    let center_y = 360.0;
+    let base_center_x = 640.0; // base center of 1280x720 frame
+    let base_center_y = 360.0;
     let events_per_sec = 100_000;
     let total_events = (events_per_sec as f32 * duration_secs) as usize;
 
@@ -126,6 +166,9 @@ pub fn generate_fan_data_with_config(
     for _ in 0..total_events {
         current_time_us += time_step_us;
         let t_secs = current_time_us as f32 / 1_000_000.0;
+
+        // Calculate current centroid position based on motion
+        let (center_x, center_y) = config.motion.centroid_at_time(t_secs, base_center_x, base_center_y);
 
         // Calculate current rotation angle
         let base_angle = angular_velocity * t_secs;
@@ -207,8 +250,8 @@ pub fn generate_fan_data_with_config(
     // Write ground truth JSON with params header
     writeln!(truth_file, "{{")?;
     writeln!(truth_file, "  \"params\": {{")?;
-    writeln!(truth_file, "    \"center_x\": {:.1},", center_x)?;
-    writeln!(truth_file, "    \"center_y\": {:.1},", center_y)?;
+    writeln!(truth_file, "    \"center_x\": {:.1},", base_center_x)?;
+    writeln!(truth_file, "    \"center_y\": {:.1},", base_center_y)?;
     writeln!(truth_file, "    \"radius_min\": {:.1},", r_min)?;
     writeln!(truth_file, "    \"radius_max\": {:.1},", radius)?;
     writeln!(truth_file, "    \"blade_count\": {},", blade_count)?;
@@ -216,7 +259,8 @@ pub fn generate_fan_data_with_config(
     writeln!(truth_file, "    \"sweep_k\": {:.2},", sweep_k)?;
     writeln!(truth_file, "    \"width_root_rad\": {:.2},", width_root_rad)?;
     writeln!(truth_file, "    \"width_tip_rad\": {:.2},", width_tip_rad)?;
-    writeln!(truth_file, "    \"edge_thickness_px\": 2.0")?;
+    writeln!(truth_file, "    \"edge_thickness_px\": 2.0,")?;
+    writeln!(truth_file, "    \"motion\": {}", serde_json::to_string(&config.motion).unwrap())?;
     writeln!(truth_file, "  }},")?;
     writeln!(truth_file, "  \"frames\": [")?;
     writeln!(truth_file, "{}", truth_entries.join(",\n"))?;
