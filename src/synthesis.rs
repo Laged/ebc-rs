@@ -16,7 +16,31 @@ use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 
-/// Generate synthetic fan event data
+/// Configuration for synthetic fan data generation
+#[derive(Debug, Clone)]
+pub struct SynthConfig {
+    /// Fan rotation speed in revolutions per minute
+    pub rpm: f32,
+    /// Number of blades
+    pub blade_count: u32,
+    /// Position jitter fraction (0.0 = none, 1.0 = max noise)
+    pub noise: f32,
+    /// Duration of generated data in seconds
+    pub duration_secs: f32,
+}
+
+impl Default for SynthConfig {
+    fn default() -> Self {
+        Self {
+            rpm: 1200.0,
+            blade_count: 3,
+            noise: 0.0,
+            duration_secs: 2.0,
+        }
+    }
+}
+
+/// Generate synthetic fan event data with default parameters
 ///
 /// # Arguments
 /// * `output_path` - Path to write the binary .dat file
@@ -26,6 +50,24 @@ use std::path::Path;
 /// * `Ok(())` on success
 /// * `Err` if file operations fail
 pub fn generate_fan_data(output_path: &Path, truth_path: &Path) -> std::io::Result<()> {
+    generate_fan_data_with_config(output_path, truth_path, &SynthConfig::default())
+}
+
+/// Generate synthetic fan event data with custom configuration
+///
+/// # Arguments
+/// * `output_path` - Path to write the binary .dat file
+/// * `truth_path` - Path to write the ground truth JSON file
+/// * `config` - Configuration parameters for generation
+///
+/// # Returns
+/// * `Ok(())` on success
+/// * `Err` if file operations fail
+pub fn generate_fan_data_with_config(
+    output_path: &Path,
+    truth_path: &Path,
+    config: &SynthConfig,
+) -> std::io::Result<()> {
     // Ensure parent directory exists
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -45,20 +87,21 @@ pub fn generate_fan_data(output_path: &Path, truth_path: &Path) -> std::io::Resu
 
     // Write header lines
     writeln!(file, "% SYNTHETIC FAN DATA")?;
-    writeln!(file, "% RPM: 1200")?;
-    writeln!(file, "% BLADES: 3")?;
+    writeln!(file, "% RPM: {}", config.rpm)?;
+    writeln!(file, "% BLADES: {}", config.blade_count)?;
     writeln!(file, "% RESOLUTION: 1280x720")?;
-    writeln!(file, "% DURATION: 2 seconds")?;
+    writeln!(file, "% DURATION: {} seconds", config.duration_secs)?;
+    writeln!(file, "% NOISE: {}", config.noise)?;
 
     // Write event type (0x00) and size (8 bytes)
     file.write_all(&[0x00, 0x08])?;
 
     // Fan parameters
-    let duration_secs = 2.0;
-    let rpm = 1200.0;
-    let rps = rpm / 60.0; // revolutions per second = 20 Hz
+    let duration_secs = config.duration_secs;
+    let rpm = config.rpm;
+    let rps = rpm / 60.0; // revolutions per second
     let angular_velocity = rps * 2.0 * PI; // radians per second
-    let blade_count = 3;
+    let blade_count = config.blade_count;
     let radius = 200.0; // pixels
     let center_x = 640.0; // center of 1280x720 frame
     let center_y = 360.0;
@@ -122,8 +165,10 @@ pub fn generate_fan_data(output_path: &Path, truth_path: &Path) -> std::io::Resu
         let theta = center_angle + edge_offset + angular_jitter;
 
         // Add position noise to simulate sensor imperfections
-        let jitter_x = (rand(&mut seed) - 0.5) * 1.0;
-        let jitter_y = (rand(&mut seed) - 0.5) * 1.0;
+        // Noise parameter scales the jitter (0.0 = none, 1.0 = max)
+        let noise_scale = config.noise * 5.0; // Max 5 pixels jitter at noise=1.0
+        let jitter_x = (rand(&mut seed) - 0.5) * noise_scale;
+        let jitter_y = (rand(&mut seed) - 0.5) * noise_scale;
 
         let x = center_x + r * theta.cos() + jitter_x;
         let y = center_y + r * theta.sin() + jitter_y;
