@@ -2,9 +2,13 @@
 // Uses workgroup reduction to minimize atomic contention
 
 struct ContrastResult {
-    sum_sq_center: atomic<u32>,
-    sum_sq_plus: atomic<u32>,
-    sum_sq_minus: atomic<u32>,
+    contrast_center: atomic<u32>,
+    contrast_omega_plus: atomic<u32>,
+    contrast_omega_minus: atomic<u32>,
+    contrast_cx_plus: atomic<u32>,
+    contrast_cx_minus: atomic<u32>,
+    contrast_cy_plus: atomic<u32>,
+    contrast_cy_minus: atomic<u32>,
     pixel_count: atomic<u32>,
 }
 
@@ -17,9 +21,13 @@ const SLICE_SIZE: u32 = WIDTH * HEIGHT;
 const WORKGROUP_SIZE: u32 = 256u;
 
 // Workgroup shared memory for local reduction
-var<workgroup> local_center: array<u32, WORKGROUP_SIZE>;
-var<workgroup> local_plus: array<u32, WORKGROUP_SIZE>;
-var<workgroup> local_minus: array<u32, WORKGROUP_SIZE>;
+var<workgroup> local_center: array<u32, 256>;
+var<workgroup> local_omega_p: array<u32, 256>;
+var<workgroup> local_omega_m: array<u32, 256>;
+var<workgroup> local_cx_p: array<u32, 256>;
+var<workgroup> local_cx_m: array<u32, 256>;
+var<workgroup> local_cy_p: array<u32, 256>;
+var<workgroup> local_cy_m: array<u32, 256>;
 
 @compute @workgroup_size(256)
 fn main(
@@ -38,19 +46,31 @@ fn main(
     // Total across all workgroups: 3600 * 16M could overflow, but workgroup reduction
     // limits it to sum of 256 values before atomic add
     var val_c = 0u;
-    var val_p = 0u;
-    var val_m = 0u;
+    var val_omega_p = 0u;
+    var val_omega_m = 0u;
+    var val_cx_p = 0u;
+    var val_cx_m = 0u;
+    var val_cy_p = 0u;
+    var val_cy_m = 0u;
 
     if global_idx < SLICE_SIZE {
         val_c = iwe_buffer[global_idx] >> 4u;
-        val_p = iwe_buffer[global_idx + SLICE_SIZE] >> 4u;
-        val_m = iwe_buffer[global_idx + 2u * SLICE_SIZE] >> 4u;
+        val_omega_p = iwe_buffer[global_idx + SLICE_SIZE] >> 4u;
+        val_omega_m = iwe_buffer[global_idx + 2u * SLICE_SIZE] >> 4u;
+        val_cx_p = iwe_buffer[global_idx + 3u * SLICE_SIZE] >> 4u;
+        val_cx_m = iwe_buffer[global_idx + 4u * SLICE_SIZE] >> 4u;
+        val_cy_p = iwe_buffer[global_idx + 5u * SLICE_SIZE] >> 4u;
+        val_cy_m = iwe_buffer[global_idx + 6u * SLICE_SIZE] >> 4u;
     }
 
     // Square values (max 256^2 = 65536)
     local_center[local_idx] = val_c * val_c;
-    local_plus[local_idx] = val_p * val_p;
-    local_minus[local_idx] = val_m * val_m;
+    local_omega_p[local_idx] = val_omega_p * val_omega_p;
+    local_omega_m[local_idx] = val_omega_m * val_omega_m;
+    local_cx_p[local_idx] = val_cx_p * val_cx_p;
+    local_cx_m[local_idx] = val_cx_m * val_cx_m;
+    local_cy_p[local_idx] = val_cy_p * val_cy_p;
+    local_cy_m[local_idx] = val_cy_m * val_cy_m;
 
     // Synchronize workgroup
     workgroupBarrier();
@@ -60,8 +80,12 @@ fn main(
     while stride > 0u {
         if local_idx < stride {
             local_center[local_idx] += local_center[local_idx + stride];
-            local_plus[local_idx] += local_plus[local_idx + stride];
-            local_minus[local_idx] += local_minus[local_idx + stride];
+            local_omega_p[local_idx] += local_omega_p[local_idx + stride];
+            local_omega_m[local_idx] += local_omega_m[local_idx + stride];
+            local_cx_p[local_idx] += local_cx_p[local_idx + stride];
+            local_cx_m[local_idx] += local_cx_m[local_idx + stride];
+            local_cy_p[local_idx] += local_cy_p[local_idx + stride];
+            local_cy_m[local_idx] += local_cy_m[local_idx + stride];
         }
         workgroupBarrier();
         stride = stride / 2u;
@@ -69,9 +93,13 @@ fn main(
 
     // Thread 0 adds workgroup result to global buffer
     if local_idx == 0u {
-        atomicAdd(&result.sum_sq_center, local_center[0]);
-        atomicAdd(&result.sum_sq_plus, local_plus[0]);
-        atomicAdd(&result.sum_sq_minus, local_minus[0]);
+        atomicAdd(&result.contrast_center, local_center[0]);
+        atomicAdd(&result.contrast_omega_plus, local_omega_p[0]);
+        atomicAdd(&result.contrast_omega_minus, local_omega_m[0]);
+        atomicAdd(&result.contrast_cx_plus, local_cx_p[0]);
+        atomicAdd(&result.contrast_cx_minus, local_cx_m[0]);
+        atomicAdd(&result.contrast_cy_plus, local_cy_p[0]);
+        atomicAdd(&result.contrast_cy_minus, local_cy_m[0]);
 
         // Count pixels for debugging (one per workgroup)
         if global_idx < SLICE_SIZE {
