@@ -52,6 +52,105 @@ impl CpuCmaxSlam {
         Self { width, height }
     }
 
+    /// Count blades from motion-compensated IWE using angular histogram analysis
+    fn count_blades_from_iwe(
+        iwe: &[u32],
+        width: u32,
+        height: u32,
+        centroid: (f32, f32),
+        radius_min: f32,
+        radius_max: f32,
+    ) -> (u32, f32) {
+        const NUM_BINS: usize = 360;
+        let mut angular_hist = vec![0.0f32; NUM_BINS];
+
+        // 1. Create angular histogram
+        for y in 0..height {
+            for x in 0..width {
+                let val = iwe[(y * width + x) as usize];
+                if val == 0 {
+                    continue;
+                }
+
+                let dx = x as f32 - centroid.0;
+                let dy = y as f32 - centroid.1;
+                let r = (dx * dx + dy * dy).sqrt();
+
+                // Only accumulate pixels within blade region
+                if r < radius_min || r > radius_max {
+                    continue;
+                }
+
+                // Calculate angle from centroid
+                let theta = dy.atan2(dx);
+                // Map [-π, π] to [0, 2π]
+                let angle_normalized = if theta < 0.0 { theta + 2.0 * PI } else { theta };
+                // Map to bin index
+                let bin = ((angle_normalized / (2.0 * PI) * NUM_BINS as f32) as usize) % NUM_BINS;
+                angular_hist[bin] += val as f32;
+            }
+        }
+
+        // 2. Smooth histogram with simple moving average (5-bin window)
+        let window_size = 5;
+        let half_window = window_size / 2;
+        let mut smoothed = vec![0.0f32; NUM_BINS];
+
+        for i in 0..NUM_BINS {
+            let mut sum = 0.0;
+            for j in 0..window_size {
+                let idx = (i + NUM_BINS + j - half_window) % NUM_BINS;
+                sum += angular_hist[idx];
+            }
+            smoothed[i] = sum / window_size as f32;
+        }
+
+        // 3. Find peaks (local maxima)
+        // Calculate threshold as 2x mean value
+        let mean_val = smoothed.iter().sum::<f32>() / NUM_BINS as f32;
+        let threshold = mean_val * 2.0;
+        let min_spacing = 10; // Minimum 10 bins between peaks (~10 degrees)
+
+        let mut peaks = Vec::new();
+        for i in 0..NUM_BINS {
+            let prev = smoothed[(i + NUM_BINS - 1) % NUM_BINS];
+            let curr = smoothed[i];
+            let next = smoothed[(i + 1) % NUM_BINS];
+
+            // Check if local maximum above threshold
+            if curr > threshold && curr > prev && curr > next {
+                // Check minimum spacing from previous peaks
+                let too_close = peaks.iter().any(|&p: &usize| {
+                    let dist = ((i as i32 - p as i32).abs()).min(NUM_BINS as i32 - (i as i32 - p as i32).abs());
+                    dist < min_spacing
+                });
+
+                if !too_close {
+                    peaks.push(i);
+                }
+            }
+        }
+
+        // 4. Calculate peak prominence (how distinct are the peaks)
+        let peak_prominence = if peaks.is_empty() {
+            0.0
+        } else {
+            let peak_heights: Vec<f32> = peaks.iter().map(|&i| smoothed[i]).collect();
+            let avg_peak_height = peak_heights.iter().sum::<f32>() / peak_heights.len() as f32;
+            // Prominence = avg peak height / mean background
+            if mean_val > 0.0 {
+                avg_peak_height / mean_val
+            } else {
+                0.0
+            }
+        };
+
+        // 5. Each blade has 2 edges (leading + trailing)
+        let blade_count = (peaks.len() / 2) as u32;
+
+        (blade_count, peak_prominence)
+    }
+
     /// Warp events using ground truth omega and create IWE
     fn warp_events(
         &self,
@@ -230,6 +329,23 @@ fn main() -> Result<()> {
     let edge_pixels = detected_edges.iter().filter(|&&e| e > 0.0).count();
     println!("  Detected edge pixels: {} (threshold: {:.2})", edge_pixels, threshold);
 
+    // Count blades from IWE
+    println!("Counting blades from angular histogram...");
+    let (blades_detected, peak_prominence) = CpuCmaxSlam::count_blades_from_iwe(
+        &iwe,
+        WIDTH,
+        HEIGHT,
+        (gt_config.center_x, gt_config.center_y),
+        gt_config.radius_min,
+        gt_config.radius_max,
+    );
+    let blades_gt = gt_config.blade_count;
+    let blades_correct = blades_detected == blades_gt;
+    println!("  Ground truth blades: {}", blades_gt);
+    println!("  Detected blades: {}", blades_detected);
+    println!("  Correct: {}", blades_correct);
+    println!("  Peak prominence: {:.2}", peak_prominence);
+
     // Generate ground truth edge mask for the window
     println!("Generating ground truth edges...");
     let gt_mask = gt_config.generate_edge_mask_window(
@@ -303,6 +419,10 @@ fn main() -> Result<()> {
             "recall",
             "f1",
             "avg_dist",
+            "blades_gt",
+            "blades_det",
+            "blades_correct",
+            "peak_prominence",
             "window_us",
             "tolerance_px",
         ])?;
@@ -318,6 +438,10 @@ fn main() -> Result<()> {
         &format!("{:.3}", metrics.tolerance_recall),
         &format!("{:.3}", metrics.tolerance_f1),
         &format!("{:.2}", metrics.avg_distance),
+        &format!("{}", blades_gt),
+        &format!("{}", blades_detected),
+        &format!("{}", blades_correct),
+        &format!("{:.2}", peak_prominence),
         &format!("{}", args.window_size),
         &format!("{:.1}", args.tolerance),
     ])?;
@@ -332,6 +456,8 @@ fn main() -> Result<()> {
     println!("  Precision: {:.3}, Recall: {:.3}, F1: {:.3}",
              metrics.tolerance_precision, metrics.tolerance_recall, metrics.tolerance_f1);
     println!("  Avg Distance: {:.2} px", metrics.avg_distance);
+    println!("  Blades GT: {}, DET: {}, Correct: {}, Prominence: {:.2}",
+             blades_gt, blades_detected, blades_correct, peak_prominence);
 
     Ok(())
 }
