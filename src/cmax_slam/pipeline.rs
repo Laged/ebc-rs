@@ -20,6 +20,9 @@ pub struct CmaxSlamPipeline {
     /// Output copy pipeline
     pub output_pipeline: CachedComputePipelineId,
     pub output_layout: BindGroupLayout,
+    /// Reduction pipeline
+    pub reduce_pipeline: CachedComputePipelineId,
+    pub reduce_layout: BindGroupLayout,
 }
 
 impl FromWorld for CmaxSlamPipeline {
@@ -142,11 +145,54 @@ impl FromWorld for CmaxSlamPipeline {
             zero_initialize_workgroup_memory: false,
         });
 
+        // Reduction shader pipeline
+        let reduce_shader = asset_server.load("shaders/cmax_slam_reduce.wgsl");
+
+        let reduce_layout = render_device.create_bind_group_layout(
+            "cmax_slam_reduce_layout",
+            &[
+                // IWE buffer (read)
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                // Contrast result (read_write)
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        );
+
+        let reduce_pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
+            label: Some("cmax_slam_reduce_pipeline".into()),
+            layout: vec![reduce_layout.clone()],
+            shader: reduce_shader,
+            shader_defs: vec![],
+            entry_point: Some("main".into()),
+            push_constant_ranges: vec![],
+            zero_initialize_workgroup_memory: true,
+        });
+
         Self {
             warp_contrast_pipeline,
             warp_contrast_layout,
             output_pipeline,
             output_layout,
+            reduce_pipeline,
+            reduce_layout,
         }
     }
 }
@@ -156,6 +202,7 @@ impl FromWorld for CmaxSlamPipeline {
 pub struct CmaxSlamBindGroups {
     pub warp_contrast: Option<BindGroup>,
     pub output: Option<BindGroup>,
+    pub reduce: Option<BindGroup>,
 }
 
 /// GPU buffers for CMax-SLAM
