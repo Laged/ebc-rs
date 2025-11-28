@@ -59,9 +59,7 @@ pub struct CmaxSlamState {
     pub initialized: bool,
 
     // EMA smoothing
-    /// Tracks smoothed omega value (initialized to omega on first use)
-    pub omega_ema: f32,
-    /// Smoothing factor (default 0.2)
+    /// EMA smoothing factor (0=frozen, 1=no smoothing)
     pub ema_alpha: f32,
 
     // Step clamping
@@ -85,7 +83,6 @@ impl Default for CmaxSlamState {
             delta_omega: 1e-6,
             omega_history: VecDeque::with_capacity(16),
             initialized: false,
-            omega_ema: 0.0,
             ema_alpha: 0.2,
             max_step_fraction: 0.02,
             last_raw_step: 0.0,

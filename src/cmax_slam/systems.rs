@@ -325,21 +325,25 @@ pub fn receive_contrast_results(
         // Parabolic interpolation for optimal step
         let denominator = 2.0 * (v_p - 2.0 * v_c + v_m);
 
-        let step = if denominator.abs() > 1e-6 {
+        let raw_step = if denominator.abs() > 1e-6 {
             // Parabolic fit: jump to estimated peak
-            let raw_step = -(v_p - v_m) / (2.0 * denominator) * current_delta;
-            raw_step
+            -(v_p - v_m) / (2.0 * denominator) * current_delta
         } else {
             // Fallback: gradient ascent
             params.learning_rate * gradient.signum() * current_delta
         };
 
-        // Clamp step (max 5% change per frame)
-        let max_step = current_delta * 5.0;
-        let clamped_step = step.clamp(-max_step, max_step);
+        // CLAMP step to ±(max_step_fraction * omega), with minimum for cold start
+        let max_step = (state.omega.abs() * state.max_step_fraction).max(1e-7);
+        let clamped_step = raw_step.clamp(-max_step, max_step);
+        state.last_raw_step = raw_step;
+        state.step_was_clamped = raw_step.abs() > max_step;
 
-        // Update omega
-        state.omega += clamped_step;
+        // Apply clamped step to get raw omega
+        let omega_raw = state.omega + clamped_step;
+
+        // EMA smooth the update
+        state.omega = state.ema_alpha * omega_raw + (1.0 - state.ema_alpha) * state.omega;
 
         // Update delta for next frame (1% of omega)
         state.delta_omega = (state.omega.abs() * 0.01).max(1e-8);
