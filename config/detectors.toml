@@ -1,0 +1,19 @@
+[sobel]
+threshold = 2.0
+window_size_us = 500.0
+filter_dead_pixels = true
+
+[canny]
+low_threshold = 0.5
+high_threshold = 2.0
+window_size_us = 5000.0
+filter_dead_pixels = true
+
+[log]
+threshold = 0.5
+window_size_us = 5000.0
+filter_dead_pixels = true
+
+[display]
+show_ground_truth = true
+metrics_update_hz = 10
