@@ -259,6 +259,7 @@ pub fn draw_metrics_overlay(
     file_state: Res<DataFileState>,
     cmax_state: Option<Res<CmaxSlamState>>,
     gt_config: Option<Res<GroundTruthConfig>>,
+    playback_state: Res<PlaybackState>,
 ) {
     let ctx = contexts.ctx_mut().expect("Failed to get egui context");
 
@@ -319,9 +320,10 @@ pub fn draw_metrics_overlay(
         ctx,
         cmax_state.as_deref(),
         gt_config.as_deref(),
+        &playback_state,
         center_x + margin,                // Right of center line
         center_y + margin,                // Below center line
-        panel_width, panel_height
+        panel_width, panel_height * 1.5   // Taller panel for centroid info
     );
 }
 
@@ -385,6 +387,7 @@ fn draw_cmax_panel(
     ctx: &egui::Context,
     cmax_state: Option<&CmaxSlamState>,
     gt_config: Option<&GroundTruthConfig>,
+    playback_state: &PlaybackState,
     x: f32,
     y: f32,
     width: f32,
@@ -410,11 +413,77 @@ fn draw_cmax_panel(
                     ui.label("RPM:");
                     ui.label(
                         egui::RichText::new(format!("{:.0}", est_rpm))
-                            .size(24.0)
+                            .size(20.0)
                             .strong()
                             .color(green)
                     );
                 });
+
+                // Show GT RPM comparison if available
+                if let Some(gt) = gt_config {
+                    if gt.rpm > 0.0 {
+                        let error_pct = ((est_rpm - gt.rpm).abs() / gt.rpm) * 100.0;
+                        let error_color = if error_pct < 1.0 {
+                            egui::Color32::from_rgb(0, 255, 0)
+                        } else if error_pct < 5.0 {
+                            egui::Color32::from_rgb(255, 200, 0)
+                        } else {
+                            egui::Color32::from_rgb(255, 0, 0)
+                        };
+                        ui.label(
+                            egui::RichText::new(format!("Δrpm: {:.1}%", error_pct))
+                                .color(error_color)
+                        );
+                    }
+                }
+
+                ui.separator();
+
+                // Display centroid position
+                ui.label(format!("Center: ({:.1}, {:.1})", state.centroid.x, state.centroid.y));
+
+                // Display centroid error (if GT available)
+                if let Some(gt) = gt_config {
+                    if gt.rpm > 0.0 {
+                        let gt_centroid = gt.centroid_at_time(playback_state.current_time);
+                        let error = state.centroid.distance(gt_centroid);
+
+                        // Color-code centroid error (green < 2px, yellow < 5px, red >= 5px)
+                        let error_color = if error < 2.0 {
+                            egui::Color32::from_rgb(0, 255, 0)
+                        } else if error < 5.0 {
+                            egui::Color32::from_rgb(255, 200, 0)
+                        } else {
+                            egui::Color32::from_rgb(255, 0, 0)
+                        };
+
+                        ui.label(
+                            egui::RichText::new(format!("Δpos: {:.1} px", error))
+                                .color(error_color)
+                        );
+                    }
+                }
+
+                // Display estimated velocity from centroid history
+                if state.centroid_history.len() >= 2 {
+                    // Compute velocity from last two centroid positions
+                    // Assuming history is updated once per frame (~30 FPS = ~33ms)
+                    let latest = state.centroid_history.back().unwrap_or(&state.centroid);
+                    let previous = state.centroid_history.get(state.centroid_history.len().saturating_sub(2))
+                        .unwrap_or(latest);
+
+                    // Velocity in px/frame, convert to px/s
+                    // Assuming ~30 FPS update rate
+                    let dt_seconds = 1.0 / 30.0;
+                    let vel_x = (latest.x - previous.x) / dt_seconds;
+                    let vel_y = (latest.y - previous.y) / dt_seconds;
+
+                    ui.label(format!("Vel: ({:.0}, {:.0}) px/s", vel_x, vel_y));
+                } else {
+                    ui.label("Vel: (0, 0) px/s");
+                }
+
+                ui.separator();
 
                 // Quality indicator based on convergence and contrast
                 let (quality_text, quality_color) = if state.converged && state.contrast > 100.0 {
@@ -428,24 +497,6 @@ fn draw_cmax_panel(
                 };
 
                 ui.label(egui::RichText::new(quality_text).color(quality_color));
-
-                // Show GT comparison if available
-                if let Some(gt) = gt_config {
-                    if gt.rpm > 0.0 {
-                        let error_pct = ((est_rpm - gt.rpm).abs() / gt.rpm) * 100.0;
-                        let error_color = if error_pct < 1.0 {
-                            egui::Color32::from_rgb(0, 255, 0)
-                        } else if error_pct < 5.0 {
-                            egui::Color32::from_rgb(255, 200, 0)
-                        } else {
-                            egui::Color32::from_rgb(255, 0, 0)
-                        };
-                        ui.label(
-                            egui::RichText::new(format!("GT: {:.0} ({:.1}%)", gt.rpm, error_pct))
-                                .color(error_color)
-                        );
-                    }
-                }
             } else {
                 ui.label("Not initialized");
             }
