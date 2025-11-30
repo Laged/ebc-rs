@@ -15,6 +15,7 @@ use ebc_rs::loader::DatLoader;
 use ebc_rs::gpu::GpuEvent;
 use std::path::PathBuf;
 use std::f32::consts::PI;
+use bevy::math::Vec2;
 
 #[derive(Parser, Debug)]
 #[command(name = "evaluate_cmax_slam")]
@@ -40,6 +41,11 @@ struct Args {
 /// Image dimensions (hard-coded to match GPU pipeline)
 const WIDTH: u32 = 1280;
 const HEIGHT: u32 = 720;
+
+/// Helper function to compute ground truth centroid position at a given timestamp
+fn centroid_at_time(gt_config: &GroundTruthConfig, t_us: f32) -> Vec2 {
+    gt_config.centroid_at_time(t_us)
+}
 
 /// CPU-based CMax-SLAM implementation for evaluation
 struct CpuCmaxSlam {
@@ -302,6 +308,13 @@ fn main() -> Result<()> {
     println!("  Blades: {}", gt_config.blade_count);
     println!("  Center: ({}, {})", gt_config.center_x, gt_config.center_y);
 
+    // Check for motion configuration
+    if let Some(ref motion) = gt_config.motion {
+        println!("  Motion: {:?}", motion);
+    } else {
+        println!("  Motion: Static (no motion field)");
+    }
+
     // Convert ground truth RPM to angular velocity (rad/μs)
     let rpm_gt = gt_config.rpm;
     let omega_gt = rpm_gt * 2.0 * PI / 60.0 / 1_000_000.0; // rad/μs
@@ -324,12 +337,20 @@ fn main() -> Result<()> {
     // Create CMax-SLAM processor
     let cmax = CpuCmaxSlam::new(WIDTH, HEIGHT);
 
-    // Warp events using ground truth omega
+    // Compute ground truth centroid at reference time
+    let t_ref = (window_start + window_end) as f32 / 2.0;
+    let gt_centroid = centroid_at_time(&gt_config, t_ref);
+
+    println!();
+    println!("Ground truth centroid at t_ref = {:.0} μs:", t_ref);
+    println!("  Position: ({:.2}, {:.2})", gt_centroid.x, gt_centroid.y);
+
+    // Warp events using ground truth omega and centroid
     println!();
     println!("Warping events with ground truth ω = {:.6e} rad/μs...", omega_gt);
     let iwe = cmax.warp_events(
         &events,
-        (gt_config.center_x, gt_config.center_y),
+        (gt_centroid.x, gt_centroid.y),
         omega_gt,
         window_start,
         window_end,
@@ -358,7 +379,7 @@ fn main() -> Result<()> {
         &iwe,
         WIDTH,
         HEIGHT,
-        (gt_config.center_x, gt_config.center_y),
+        (gt_centroid.x, gt_centroid.y),
         gt_config.radius_min,
         gt_config.radius_max,
     );
@@ -374,7 +395,6 @@ fn main() -> Result<()> {
     // so we compare against GT edges at that same reference time.
     // This is the correct comparison because motion compensation should align
     // all edges to their position at t_ref.
-    let t_ref = (window_start + window_end) as f32 / 2.0;
     println!("Generating ground truth edges at t_ref = {:.0} μs...", t_ref);
     let gt_mask = gt_config.generate_edge_mask(t_ref, WIDTH, HEIGHT);
 
@@ -405,6 +425,18 @@ fn main() -> Result<()> {
     println!("  Tolerance Recall: {:.3}", metrics.tolerance_recall);
     println!("  Tolerance F1: {:.3}", metrics.tolerance_f1);
     println!("  Average Distance: {:.2} px", metrics.avg_distance);
+
+    // Compute centroid error
+    // For this evaluation, we're using the ground truth centroid, so error is 0
+    // In a real scenario with an optimizer, we'd estimate centroid and compute the error
+    let estimated_centroid = gt_centroid; // Placeholder - would come from optimizer
+    let centroid_error = (estimated_centroid - gt_centroid).length();
+
+    println!();
+    println!("Centroid tracking:");
+    println!("  GT centroid: ({:.2}, {:.2})", gt_centroid.x, gt_centroid.y);
+    println!("  Estimated centroid: ({:.2}, {:.2})", estimated_centroid.x, estimated_centroid.y);
+    println!("  Centroid error: {:.2} px", centroid_error);
 
     // For this evaluation, we're using ground truth omega, so RPM error is 0
     // In a real scenario, we'd estimate omega and compute the error
@@ -451,6 +483,11 @@ fn main() -> Result<()> {
             "recall",
             "f1",
             "avg_dist",
+            "centroid_x_gt",
+            "centroid_y_gt",
+            "centroid_x_est",
+            "centroid_y_est",
+            "centroid_error_px",
             "blades_gt",
             "blades_det",
             "blades_correct",
@@ -470,6 +507,11 @@ fn main() -> Result<()> {
         &format!("{:.3}", metrics.tolerance_recall),
         &format!("{:.3}", metrics.tolerance_f1),
         &format!("{:.2}", metrics.avg_distance),
+        &format!("{:.2}", gt_centroid.x),
+        &format!("{:.2}", gt_centroid.y),
+        &format!("{:.2}", estimated_centroid.x),
+        &format!("{:.2}", estimated_centroid.y),
+        &format!("{:.2}", centroid_error),
         &format!("{}", blades_gt),
         &format!("{}", blades_detected),
         &format!("{}", blades_correct),
@@ -488,6 +530,7 @@ fn main() -> Result<()> {
     println!("  Precision: {:.3}, Recall: {:.3}, F1: {:.3}",
              metrics.tolerance_precision, metrics.tolerance_recall, metrics.tolerance_f1);
     println!("  Avg Distance: {:.2} px", metrics.avg_distance);
+    println!("  Centroid Error: {:.2} px", centroid_error);
     println!("  Blades GT: {}, DET: {}, Correct: {}, Prominence: {:.2}",
              blades_gt, blades_detected, blades_correct, peak_prominence);
 

@@ -75,6 +75,16 @@ pub struct CmaxSlamState {
     pub last_raw_step: f32,
     /// Flag for UI
     pub step_was_clamped: bool,
+
+    // Phase 2: Centroid tracking fields
+    /// Perturbation size for centroid position (pixels)
+    pub delta_pos: f32,
+    /// Recent centroid positions for convergence detection
+    pub centroid_history: VecDeque<Vec2>,
+    /// Learning rate for omega updates
+    pub lr_omega: f32,
+    /// Learning rate for centroid updates
+    pub lr_centroid: f32,
 }
 
 impl Default for CmaxSlamState {
@@ -93,12 +103,16 @@ impl Default for CmaxSlamState {
             max_step_fraction: 0.02,
             last_raw_step: 0.0,
             step_was_clamped: false,
+            delta_pos: 3.0,
+            centroid_history: VecDeque::with_capacity(16),
+            lr_omega: 0.5,
+            lr_centroid: 0.1,
         }
     }
 }
 
 /// GPU-compatible CMax-SLAM parameters
-/// Layout: 9 useful fields (36 bytes) + 3 padding (12 bytes) = 48 bytes total
+/// Layout: 10 useful fields (40 bytes) + 2 padding (8 bytes) = 48 bytes total
 /// This matches WGSL struct exactly (no vec3 alignment issues)
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -113,28 +127,39 @@ pub struct GpuCmaxSlamParams {
     pub omega: f32,           // 12-15
     /// Small delta for numerical gradient
     pub delta_omega: f32,     // 16-19
+    /// Small delta for centroid position
+    pub delta_pos: f32,       // 20-23
     /// Weight for edge correlation
-    pub edge_weight: f32,     // 20-23
+    pub edge_weight: f32,     // 24-27
     /// Window start timestamp
-    pub window_start: u32,    // 24-27
+    pub window_start: u32,    // 28-31
     /// Window end timestamp
-    pub window_end: u32,      // 28-31
+    pub window_end: u32,      // 32-35
     /// Total event count
-    pub event_count: u32,     // 32-35
+    pub event_count: u32,     // 36-39
     /// Padding to 48 bytes (multiple of 16 for GPU alignment)
-    pub _pad: [u32; 3],       // 36-47
+    pub _pad: [u32; 2],       // 40-47
 }
 
 /// GPU result buffer layout
+/// 7 contrast values + pixel_count = 8 × f32 = 32 bytes
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable, Default)]
 pub struct GpuCmaxSlamResult {
-    /// Contrast at omega
+    /// Contrast at center (omega, cx, cy)
     pub contrast_center: f32,
-    /// Contrast at omega + delta
-    pub contrast_plus: f32,
-    /// Contrast at omega - delta
-    pub contrast_minus: f32,
-    /// Padding
-    pub _padding: f32,
+    /// Contrast at omega + delta_omega
+    pub contrast_omega_plus: f32,
+    /// Contrast at omega - delta_omega
+    pub contrast_omega_minus: f32,
+    /// Contrast at cx + delta_pos
+    pub contrast_cx_plus: f32,
+    /// Contrast at cx - delta_pos
+    pub contrast_cx_minus: f32,
+    /// Contrast at cy + delta_pos
+    pub contrast_cy_plus: f32,
+    /// Contrast at cy - delta_pos
+    pub contrast_cy_minus: f32,
+    /// Pixel count (for normalization)
+    pub pixel_count: f32,
 }

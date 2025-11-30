@@ -2,9 +2,46 @@
 
 use bevy::prelude::*;
 use bevy::render::extract_resource::ExtractResource;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 use std::path::Path;
+
+/// Centroid motion configuration for synthetic data
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum CentroidMotion {
+    #[serde(rename = "static")]
+    Static,
+    #[serde(rename = "linear_drift")]
+    LinearDrift { velocity_x: f32, velocity_y: f32 },
+    #[serde(rename = "oscillation")]
+    Oscillation {
+        amplitude_x: f32,
+        amplitude_y: f32,
+        frequency_hz: f32,
+        phase_offset: f32
+    },
+}
+
+impl CentroidMotion {
+    /// Compute centroid position at given time
+    pub fn centroid_at_time(&self, t_us: f32, base_x: f32, base_y: f32) -> Vec2 {
+        let t_secs = t_us / 1_000_000.0;
+        match self {
+            CentroidMotion::Static => Vec2::new(base_x, base_y),
+            CentroidMotion::LinearDrift { velocity_x, velocity_y } => {
+                Vec2::new(base_x + velocity_x * t_secs, base_y + velocity_y * t_secs)
+            }
+            CentroidMotion::Oscillation { amplitude_x, amplitude_y, frequency_hz, phase_offset } => {
+                let phase = 2.0 * PI * frequency_hz * t_secs + phase_offset;
+                Vec2::new(
+                    base_x + amplitude_x * phase.cos(),
+                    base_y + amplitude_y * phase.sin()
+                )
+            }
+        }
+    }
+}
 
 /// Ground truth fan parameters loaded from JSON sidecar file.
 #[derive(Resource, ExtractResource, Deserialize, Debug, Clone, Default)]
@@ -42,6 +79,9 @@ pub struct GroundTruthConfig {
     /// Edge detection thickness (pixels)
     #[serde(default = "default_edge_thickness")]
     pub edge_thickness_px: f32,
+    /// Centroid motion configuration
+    #[serde(default)]
+    pub motion: Option<CentroidMotion>,
 }
 
 fn default_center_x() -> f32 { 640.0 }
@@ -59,6 +99,14 @@ impl GroundTruthConfig {
     /// Angular velocity in radians per second
     pub fn angular_velocity(&self) -> f32 {
         self.rpm * 2.0 * PI / 60.0
+    }
+
+    /// Compute ground truth centroid position at a given timestamp
+    pub fn centroid_at_time(&self, t_us: f32) -> Vec2 {
+        match &self.motion {
+            Some(motion) => motion.centroid_at_time(t_us, self.center_x, self.center_y),
+            None => Vec2::new(self.center_x, self.center_y),
+        }
     }
 
     /// Check if a point at a specific time is on an edge.
@@ -430,3 +478,80 @@ impl GroundTruthMetrics {
     }
 }
 
+#[cfg(test)]
+mod task9_tests {
+    use super::{GroundTruthConfig, CentroidMotion};
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_static_centroid() {
+        let config = GroundTruthConfig {
+            enabled: true,
+            center_x: 640.0,
+            center_y: 360.0,
+            motion: None,
+            ..Default::default()
+        };
+        
+        let c0 = config.centroid_at_time(0.0);
+        let c1 = config.centroid_at_time(1_000_000.0);
+        
+        assert_eq!(c0.x, 640.0);
+        assert_eq!(c0.y, 360.0);
+        assert_eq!(c1.x, 640.0);
+        assert_eq!(c1.y, 360.0);
+    }
+
+    #[test]
+    fn test_linear_drift() {
+        let config = GroundTruthConfig {
+            enabled: true,
+            center_x: 640.0,
+            center_y: 360.0,
+            motion: Some(CentroidMotion::LinearDrift {
+                velocity_x: 50.0,
+                velocity_y: 20.0,
+            }),
+            ..Default::default()
+        };
+        
+        let c0 = config.centroid_at_time(0.0);
+        let c1 = config.centroid_at_time(1_000_000.0); // 1 second
+        let c2 = config.centroid_at_time(2_000_000.0); // 2 seconds
+        
+        assert_eq!(c0.x, 640.0);
+        assert_eq!(c0.y, 360.0);
+        assert!((c1.x - 690.0).abs() < 0.01);
+        assert!((c1.y - 380.0).abs() < 0.01);
+        assert!((c2.x - 740.0).abs() < 0.01);
+        assert!((c2.y - 400.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_backward_compatibility_no_motion() {
+        // fan_test.dat should not have motion field
+        let path = PathBuf::from("data/synthetic/fan_test.dat");
+        if let Some(config) = GroundTruthConfig::load_from_sidecar(&path) {
+            assert!(config.motion.is_none());
+            let c = config.centroid_at_time(0.0);
+            assert_eq!(c.x, 640.0);
+            assert_eq!(c.y, 360.0);
+        }
+    }
+
+    #[test]
+    fn test_motion_field_present() {
+        // fan_drift.dat should have motion field
+        let path = PathBuf::from("data/synthetic/fan_drift.dat");
+        if let Some(config) = GroundTruthConfig::load_from_sidecar(&path) {
+            assert!(config.motion.is_some());
+            match config.motion {
+                Some(CentroidMotion::LinearDrift { velocity_x, velocity_y }) => {
+                    assert_eq!(velocity_x, 50.0);
+                    assert_eq!(velocity_y, 20.0);
+                }
+                _ => panic!("Expected LinearDrift motion"),
+            }
+        }
+    }
+}

@@ -4,7 +4,7 @@
 
 use clap::Parser;
 use std::path::PathBuf;
-use ebc_rs::synthesis::{generate_fan_data_with_config, SynthConfig};
+use ebc_rs::synthesis::{generate_fan_data_with_config, SynthConfig, CentroidMotion};
 
 fn validate_noise(s: &str) -> Result<f32, String> {
     let value: f32 = s.parse().map_err(|_| format!("'{}' is not a valid number", s))?;
@@ -38,10 +38,47 @@ struct Args {
     /// Duration of generated data in seconds
     #[arg(long, default_value_t = 2.0)]
     duration: f32,
+
+    /// Linear drift velocity in x direction (pixels/second)
+    #[arg(long, default_value_t = 0.0)]
+    drift_vx: f32,
+
+    /// Linear drift velocity in y direction (pixels/second)
+    #[arg(long, default_value_t = 0.0)]
+    drift_vy: f32,
+
+    /// Enable oscillation mode (overrides drift if set)
+    #[arg(long, default_value_t = false)]
+    oscillate: bool,
+
+    /// Oscillation amplitude (pixels)
+    #[arg(long, default_value_t = 30.0)]
+    osc_amp: f32,
+
+    /// Oscillation frequency (Hz)
+    #[arg(long, default_value_t = 0.5)]
+    osc_freq: f32,
 }
 
 fn main() -> std::io::Result<()> {
     let args = Args::parse();
+
+    // Determine motion configuration
+    let motion = if args.oscillate {
+        CentroidMotion::Oscillation {
+            amplitude_x: args.osc_amp,
+            amplitude_y: args.osc_amp,
+            frequency_hz: args.osc_freq,
+            phase_offset: 0.0,
+        }
+    } else if args.drift_vx != 0.0 || args.drift_vy != 0.0 {
+        CentroidMotion::LinearDrift {
+            velocity_x: args.drift_vx,
+            velocity_y: args.drift_vy,
+        }
+    } else {
+        CentroidMotion::Static
+    };
 
     // Create config from CLI arguments
     let config = SynthConfig {
@@ -49,6 +86,7 @@ fn main() -> std::io::Result<()> {
         blade_count: args.blades,
         noise: args.noise,
         duration_secs: args.duration,
+        motion,
     };
 
     // Auto-derive truth JSON filename from output path
@@ -65,6 +103,7 @@ fn main() -> std::io::Result<()> {
     println!("  Blades:   {}", config.blade_count);
     println!("  Noise:    {}", config.noise);
     println!("  Duration: {}s", config.duration_secs);
+    println!("  Motion:   {:?}", config.motion);
     println!("  Output:   {}", args.output.display());
     println!("  Truth:    {}", truth_path.display());
 
